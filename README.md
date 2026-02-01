@@ -35,12 +35,12 @@ A live, interactive demo of the **DeepFake Detection Tool** is hosted on **Huggi
 ---
 
 ## 🏗️ System Architecture
-
 ```mermaid
 flowchart TD
-    A[Frontend (HTML/CSS/JS)] --> B[FastAPI Backend (API + Auth)]
-    B --> C[DeepFake Detection Model (AI/ML)]
-    C --> D[Result (Prediction + Confidence)]
+    A["Frontend (HTML CSS JS)"] --> B["FastAPI Backend (API and Auth)"]
+    B --> C["DeepFake Detection Model (AI ML)"]
+    C --> D["Result (Prediction and Confidence)"]
+
 ```
 ---
 
