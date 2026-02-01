@@ -37,14 +37,14 @@ A live, interactive demo of the **DeepFake Detection Tool** is hosted on **Huggi
 ## 🏗️ System Architecture
 
 Frontend (HTML/CSS/JS)
-        |
-        v
+|
+v
 FastAPI Backend (API + Auth)
-        |
-        v
+|
+v
 DeepFake Detection Model (AI/ML)
-        |
-        v
+|
+v
 Result (Prediction + Confidence)
 
 
