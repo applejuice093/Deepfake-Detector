@@ -73,9 +73,9 @@ flowchart TD
 
 ### 1️⃣ Clone the Repository
 ```bash
-git clone https://github.com/your-username/deepfake-detection-tool.git
-cd deepfake-detection-tool
-cd backend
+git clone https://github.com/applejuice093/Deepfake-Detector.git
+cd Deepfake-Detector
+
 pip install -r requirements.txt
 uvicorn main:app --reload
 ```
