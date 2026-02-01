@@ -12,17 +12,6 @@ A live, interactive demo of the **DeepFake Detection Tool** is hosted on **Huggi
 🔗 **Hugging Face Space:**  
 [DeepFake Detection Tool – Live Demo](https://huggingface.co/spaces/Tophet12/deepfake-detector)
 
-### Features of the Space
-- Upload image, video, or audio files
-- Real-time deepfake prediction
-- Confidence score display
-- No local installation required
-
-### Purpose
-- Public demo of the model
-- Easy testing and validation
-- Showcasing model capabilities for reviewers and contributors
-
 ## 🚀 Features
 
 - 🔍 Image DeepFake Detection  
