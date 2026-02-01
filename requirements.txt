@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+opencv-python
+numpy
+pillow
+python-multipart
+torch
+transformers
+moviepy

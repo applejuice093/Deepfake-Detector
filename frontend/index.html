@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deepfake Detection Online</title>
+    <link rel="stylesheet" href="index.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+
+    <!-- Navigation -->
+    <nav>
+        <div class="logo">DeepDetect AI</div>
+        <div class="nav-links">
+            <a onclick="switchTab('home')" class="active">Home</a>
+            <a onclick="switchTab('detection-tools')">Detection Tools</a>
+            <a onclick="switchTab('image')">Image</a>
+            <a onclick="switchTab('video')">Video</a>
+            <a onclick="switchTab('audio')">Audio</a>
+        </div>
+    </nav>
+
+    <!-- Main Application -->
+    <main>
+
+        <!-- Tab 1: Home (DEFAULT) -->
+        <div id="home-tab" class="tab-content show">
+            <div class="hero-section">
+                <h1 class="hero-title">Welcome to DeepDetect AI</h1>
+                <p class="hero-text">
+                    In an era of rapidly evolving AI, verifying the authenticity of media is crucial. 
+                    Our platform provides cutting-edge, browser-based detection tools to help you identify 
+                    manipulated images, deepfake videos, and synthetic audio.
+                </p>
+                <button class="btn-detect" style="width: auto; padding: 1rem 3rem; display: inline-flex;" onclick="switchTab('detection-tools')">
+                    Start Detection
+                </button>
+            </div>
+
+            <div class="features-grid">
+                <div class="feature-item">
+                    <i class="fa-solid fa-shield-halved"></i>
+                    <h3>Secure Analysis</h3>
+                    <p style="color: #666;">Processing happens securely in your browser interface simulation.</p>
+                </div>
+                <div class="feature-item">
+                    <i class="fa-solid fa-bolt"></i>
+                    <h3>Fast Results</h3>
+                    <p style="color: #666;">Get immediate feedback on media authenticity.</p>
+                </div>
+                <div class="feature-item">
+                    <i class="fa-solid fa-users-viewfinder"></i>
+                    <h3>Multi-Modal</h3>
+                    <p style="color: #666;">Comprehensive tools for Images, Videos, and Audio.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 2: Detection Tools (Dashboard) -->
+        <div id="detection-tools-tab" class="tab-content hidden">
+            <div class="header-section">
+                <h1>Select Detection Tool</h1>
+                <p>Choose the type of media you want to analyze.</p>
+            </div>
+            
+            <div class="dashboard-grid">
+                <!-- Card 1 -->
+                <div class="dash-card" onclick="switchTab('image')">
+                    <i class="fa-regular fa-image dash-icon"></i>
+                    <h3>Image Detection</h3>
+                    <p>Analyze static images for GAN artifacts and facial inconsistencies.</p>
+                    <button class="btn-go">Open Tool</button>
+                </div>
+
+                <!-- Card 2 -->
+                <div class="dash-card" onclick="switchTab('video')">
+                    <i class="fa-solid fa-video dash-icon"></i>
+                    <h3>Video Detection</h3>
+                    <p>Detect deepfake manipulation in video files with frame analysis.</p>
+                    <button class="btn-go">Open Tool</button>
+                </div>
+
+                <!-- Card 3 -->
+                <div class="dash-card" onclick="switchTab('audio')">
+                    <i class="fa-solid fa-microphone dash-icon"></i>
+                    <h3>Audio Detection</h3>
+                    <p>Identify voice cloning and synthetic speech patterns.</p>
+                    <button class="btn-go">Open Tool</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 3: Image Tool -->
+        <div id="image-tab" class="tab-content hidden">
+            <div class="header-section">
+                <h1>Image Deepfake Detection</h1>
+                <p>Upload an image to check for manipulation.</p>
+            </div>
+
+            <div class="tool-container">
+                <!-- Left: Upload -->
+                <div class="upload-section">
+                    <div class="drop-zone" id="image-drop-zone">
+                        <i class="fa-regular fa-image"></i>
+                        <h3>Drag & Drop Image</h3>
+                        <p>or click to browse files</p>
+                        <p class="file-info">Supports: PNG, JPG, WEBP (Max 3MB)</p>
+                        <input type="file" id="image-input" accept="image/png, image/jpeg, image/webp">
+                        <img id="image-preview" class="file-preview" alt="Preview">
+                    </div>
+                    <div class="button-row">
+                        <button class="btn-detect" id="image-detect-btn" onclick="runDetection('image')">
+                            <span>Detect Forgery</span>
+                        </button>
+                        <button class="btn-reset" onclick="resetUpload('image')">
+                            <span><i class="fa-solid fa-rotate-left"></i> Reset</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Right: Info & Results -->
+                <div class="info-section">
+                    <!-- Result Box -->
+                    <div id="image-result" class="result-box">
+                        <div id="image-badge" class="result-badge">Result</div>
+                        <div class="confidence-score" id="image-score">0%</div>
+                        <div class="confidence-label">Manipulation Probability</div>
+                    </div>
+
+                    <!-- Examples -->
+                    <div class="examples-section">
+                        <div class="section-title">Examples</div>
+                        <div class="examples-grid">
+                            <div class="example-card">
+                                <img src="https://picsum.photos/seed/fake1/200/150" alt="Fake example">
+                                <div class="example-label label-fake">Fake</div>
+                            </div>
+                            <div class="example-card">
+                                <img src="https://picsum.photos/seed/real1/200/150" alt="Real example">
+                                <div class="example-label label-real">True</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 4: Video Tool -->
+        <div id="video-tab" class="tab-content hidden">
+            <div class="header-section">
+                <h1>Video Deepfake Detection</h1>
+                <p>Upload video for temporal consistency analysis.</p>
+            </div>
+
+            <div class="tool-container">
+                <div class="upload-section">
+                    <div class="drop-zone" id="video-drop-zone">
+                        <i class="fa-solid fa-video"></i>
+                        <h3>Drag & Drop Video</h3>
+                        <p>or click to browse files</p>
+                        <p class="file-info">Supports: MP4, MOV (Max 10MB)</p>
+                        <input type="file" id="video-input" accept="video/mp4, video/quicktime">
+                        <video id="video-preview" class="video-preview" controls></video>
+                    </div>
+                    <div class="button-row">
+                        <button class="btn-detect" id="video-detect-btn" onclick="runDetection('video')">
+                            <span>Detect Forgery</span>
+                        </button>
+                        <button class="btn-reset" onclick="resetUpload('video')">
+                            <span><i class="fa-solid fa-rotate-left"></i> Reset</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="info-section">
+                    <div class="section-title">Video Analysis Context</div>
+                    <p style="color: #666; line-height: 1.6;">
+                        Our video detection tool analyzes frame-by-frame inconsistencies and temporal artifacts.
+                    </p>
+
+                    <!-- Animated Visualizer -->
+                    <div class="visualizer-container" id="video-visualizer">
+                        <!-- Bars generated via JS for cleaner code or static HTML -->
+                        <div class="visualizer-bar" style="animation-duration: 0.8s"></div>
+                        <div class="visualizer-bar" style="animation-duration: 1.1s"></div>
+                        <div class="visualizer-bar" style="animation-duration: 0.9s"></div>
+                        <div class="visualizer-bar" style="animation-duration: 1.2s"></div>
+                        <div class="visualizer-bar" style="animation-duration: 0.7s"></div>
+                        <div class="visualizer-bar" style="animation-duration: 1.0s"></div>
+                        <div class="visualizer-bar" style="animation-duration: 0.8s"></div>
+                        <div class="visualizer-bar" style="animation-duration: 1.3s"></div>
+                    </div>
+                    
+                    <!-- Result Display -->
+                    <div id="video-result" class="result-box">
+                        <div id="video-badge" class="result-badge">Result</div>
+                        <div class="confidence-score" id="video-score">0%</div>
+                        <div class="confidence-label">Deepfake Probability</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 5: Audio Tool -->
+        <div id="audio-tab" class="tab-content hidden">
+            <div class="header-section">
+                <h1>Audio Deepfake Detection</h1>
+                <p>Analyze voice patterns for synthetic origins.</p>
+            </div>
+
+            <div class="tool-container">
+                <div class="upload-section">
+                    <div class="drop-zone" id="audio-drop-zone">
+                        <i class="fa-solid fa-microphone"></i>
+                        <h3>Drag & Drop Audio</h3>
+                        <p>or click to browse files</p>
+                        <p class="file-info">Supports: WAV, MP3 (Max 5MB)</p>
+                        <input type="file" id="audio-input" accept="audio/wav, audio/mpeg">
+                        <audio id="audio-preview" class="audio-preview" controls></audio>
+                    </div>
+                    <div class="button-row">
+                        <button class="btn-detect" id="audio-detect-btn" onclick="runDetection('audio')">
+                            <span>Detect Forgery</span>
+                        </button>
+                        <button class="btn-reset" onclick="resetUpload('audio')">
+                            <span><i class="fa-solid fa-rotate-left"></i> Reset</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="info-section">
+                    <div class="section-title">Audio Spectrogram Analysis</div>
+                    <p style="color: #666; line-height: 1.6;">
+                        Voice cloning detection utilizes spectral phase analysis to identify synthetic artifacts generated by TTS models.
+                    </p>
+
+                    <!-- Result Display -->
+                    <div id="audio-result" class="result-box">
+                        <div id="audio-badge" class="result-badge">Result</div>
+                        <div class="confidence-score" id="audio-score">0%</div>
+                        <div class="confidence-label">Synthetic Probability</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <p>&copy; 2024 DeepDetect AI. Frontend Demo Only.</p>
+    </footer>
+
+    <!-- Toast Notification Container -->
+    <div id="toast" class="toast">Message here</div>
+    <script src="index.js"></script>
+</body>
+</html>
