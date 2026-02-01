@@ -41,8 +41,7 @@ flowchart TD
     A[Frontend (HTML/CSS/JS)] --> B[FastAPI Backend (API + Auth)]
     B --> C[DeepFake Detection Model (AI/ML)]
     C --> D[Result (Prediction + Confidence)]
-
-
+```
 ---
 
 ## 🛠️ Tech Stack
