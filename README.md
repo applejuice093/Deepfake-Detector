@@ -78,7 +78,7 @@ cd deepfake-detection-tool
 cd backend
 pip install -r requirements.txt
 uvicorn main:app --reload
-
+```
 | Media Type | Formats  |
 | ---------- | -------- |
 | Image      | JPG, PNG |
