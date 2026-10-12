@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 
 import os
 import shutil
+import uuid
 import torch
 import numpy as np
 from PIL import Image
@@ -25,6 +26,7 @@ app.add_middleware(
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 # -------------------------
 # Load OLD HuggingFace model
@@ -66,7 +68,11 @@ async def analyze_file(file: UploadFile = File(...)):
     if not (file.content_type or "").startswith("image/"):
         raise HTTPException(status_code=415, detail="Only image files are supported")
 
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
+    # Never trust the client filename (path traversal / overwrites).
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        ext = ""
+    file_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}{ext}")
 
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
