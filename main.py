@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 import os
-import shutil
 import uuid
 import torch
 import numpy as np
@@ -27,6 +26,7 @@ app.add_middleware(
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "10")) * 1024 * 1024
 
 # -------------------------
 # Load OLD HuggingFace model
@@ -74,8 +74,17 @@ async def analyze_file(file: UploadFile = File(...)):
         ext = ""
     file_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}{ext}")
 
+    data = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
+        )
+    if not data:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
     with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        buffer.write(data)
 
     img = Image.open(file_path).convert("RGB")
     img_np = np.array(img)
