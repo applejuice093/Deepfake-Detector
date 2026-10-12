@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -63,13 +63,13 @@ def health():
 
 @app.post("/analyze")
 async def analyze_file(file: UploadFile = File(...)):
+    if not (file.content_type or "").startswith("image/"):
+        raise HTTPException(status_code=415, detail="Only image files are supported")
+
     file_path = os.path.join(UPLOAD_DIR, file.filename)
 
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-
-    if not file.content_type.startswith("image"):
-        return {"error": "Only image files are supported"}
 
     img = Image.open(file_path).convert("RGB")
     img_np = np.array(img)
