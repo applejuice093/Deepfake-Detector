@@ -4,11 +4,8 @@ from fastapi.staticfiles import StaticFiles
 
 import os
 import uuid
-import torch
 import numpy as np
 from PIL import Image, UnidentifiedImageError
-
-from transformers import AutoImageProcessor, AutoModelForImageClassification
 
 # -------------------------
 # App setup
@@ -29,31 +26,48 @@ ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "10")) * 1024 * 1024
 
 # -------------------------
-# Load OLD HuggingFace model
+# HuggingFace model (loaded lazily on first request)
 # -------------------------
 
-MODEL_NAME = "prithivMLmods/deepfake-detector-model-v1"
+MODEL_NAME = os.getenv("MODEL_NAME", "prithivMLmods/deepfake-detector-model-v1")
 
-processor = AutoImageProcessor.from_pretrained(MODEL_NAME)
-model = AutoModelForImageClassification.from_pretrained(MODEL_NAME)
-model.eval()
+_processor = None
+_model = None
+_fake_label_index = None
 
-# The model's labels are {0: "Fake", 1: "Real"}; look the index up from the
-# config instead of hardcoding it so the score is always P(fake).
-FAKE_LABEL_INDEX = next(
-    int(i) for i, label in model.config.id2label.items() if label.lower() == "fake"
-)
+
+def _load_model():
+    """Load the model once. Deferred so the app starts fast and tests can
+    run without downloading weights."""
+    global _processor, _model, _fake_label_index
+    if _model is None:
+        from transformers import AutoImageProcessor, AutoModelForImageClassification
+
+        _processor = AutoImageProcessor.from_pretrained(MODEL_NAME)
+        _model = AutoModelForImageClassification.from_pretrained(MODEL_NAME)
+        _model.eval()
+        # The model's labels are {0: "Fake", 1: "Real"}; look the index up
+        # from the config instead of hardcoding it so the score is P(fake).
+        _fake_label_index = next(
+            int(i) for i, label in _model.config.id2label.items()
+            if label.lower() == "fake"
+        )
+    return _processor, _model, _fake_label_index
 
 # -------------------------
 # Inference
 # -------------------------
 
 def deepfake_score(image_np):
+    """Return the probability (0-100) that the image is a deepfake."""
+    import torch
+
+    processor, model, fake_idx = _load_model()
     inputs = processor(images=image_np, return_tensors="pt")
     with torch.no_grad():
         outputs = model(**inputs)
         probs = torch.softmax(outputs.logits, dim=1)
-    return int(probs[0][FAKE_LABEL_INDEX].item() * 100)
+    return int(probs[0][fake_idx].item() * 100)
 
 def classify_risk(score):
     """Map a 0-100 deepfake probability to a human-readable risk band."""
