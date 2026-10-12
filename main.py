@@ -36,6 +36,12 @@ processor = AutoImageProcessor.from_pretrained(MODEL_NAME)
 model = AutoModelForImageClassification.from_pretrained(MODEL_NAME)
 model.eval()
 
+# The model's labels are {0: "Fake", 1: "Real"}; look the index up from the
+# config instead of hardcoding it so the score is always P(fake).
+FAKE_LABEL_INDEX = next(
+    int(i) for i, label in model.config.id2label.items() if label.lower() == "fake"
+)
+
 # -------------------------
 # Inference
 # -------------------------
@@ -45,7 +51,7 @@ def deepfake_score(image_np):
     with torch.no_grad():
         outputs = model(**inputs)
         probs = torch.softmax(outputs.logits, dim=1)
-    return int(probs[0][1].item() * 100)
+    return int(probs[0][FAKE_LABEL_INDEX].item() * 100)
 
 # -------------------------
 # API
