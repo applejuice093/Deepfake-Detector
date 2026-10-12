@@ -55,6 +55,14 @@ def deepfake_score(image_np):
         probs = torch.softmax(outputs.logits, dim=1)
     return int(probs[0][FAKE_LABEL_INDEX].item() * 100)
 
+def classify_risk(score):
+    """Map a 0-100 deepfake probability to a human-readable risk band."""
+    if score < 30:
+        return "Low (Likely Real)"
+    if score < 60:
+        return "Medium (Inconclusive)"
+    return "High (Possible Deepfake)"
+
 # -------------------------
 # API
 # -------------------------
@@ -98,11 +106,7 @@ async def analyze_file(file: UploadFile = File(...)):
 
     score = deepfake_score(img_np)
 
-    risk_level = (
-        "Low (Likely Real)" if score < 30 else
-        "Medium (Inconclusive)" if score < 60 else
-        "High (Possible Deepfake)"
-    )
+    risk_level = classify_risk(score)
 
     return {
         "media_type": "Image",
