@@ -147,7 +147,15 @@ async function runDetection(type) {
             body: formData
         });
 
-        if (!res.ok) throw new Error("Backend error");
+        if (!res.ok) {
+            // Surface the API's explanation (e.g. unsupported type, too large)
+            let detail = `Request failed (${res.status})`;
+            try {
+                const body = await res.json();
+                if (body && body.detail) detail = body.detail;
+            } catch (_) { /* non-JSON error body */ }
+            throw new Error(detail);
+        }
 
         const data = await res.json();
 
@@ -196,7 +204,8 @@ async function runDetection(type) {
         showToast("Analysis complete.");
     } catch (err) {
         console.error(err);
-        showToast("Server error. Check backend.");
+        showToast(err.message || "Server error. Check backend.");
+        resultBox.style.display = "none";
     }
 
     btn.disabled = false;

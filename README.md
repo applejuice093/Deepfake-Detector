@@ -15,8 +15,8 @@ A live, interactive demo of the **DeepFake Detection Tool** is hosted on **Huggi
 ## 🚀 Features
 
 - 🔍 Image DeepFake Detection  
-- 🎥 Video DeepFake Detection  
-- 🎧 Audio DeepFake Detection  
+- 🎥 Video DeepFake Detection *(planned – UI only)*  
+- 🎧 Audio DeepFake Detection *(planned – UI only)*  
 - ⚡ FastAPI-based backend  
 - 🌐 Web frontend (HTML, CSS, JavaScript)  
 - ☁️ Cloud deployment (Hugging Face)  
@@ -58,10 +58,9 @@ flowchart TD
 - Uvicorn
 
 ### AI / ML
-- PyTorch / TensorFlow (model dependent)
-- OpenCV
-- NumPy
-- Custom-trained DeepFake Detection Model
+- PyTorch + Hugging Face Transformers
+- Pretrained image classifier [`prithivMLmods/deepfake-detector-model-v1`](https://huggingface.co/prithivMLmods/deepfake-detector-model-v1)
+- NumPy / Pillow
 
 ### Deployment
 - Render (Backend & Model)
@@ -71,19 +70,61 @@ flowchart TD
 
 ## ⚙️ Installation & Local Setup
 
-### 1️⃣ Clone the Repository
 ```bash
 git clone https://github.com/applejuice093/Deepfake-Detector.git
 cd Deepfake-Detector
-
-pip install -r requirements.txt
-uvicorn main:app --reload
+make install        # pip install -r requirements.txt
+make run            # uvicorn main:app --reload --port 8000
 ```
-| Media Type | Formats  |
-| ---------- | -------- |
-| Image      | JPG, PNG |
-| Video      | MP4, AVI |
-| Audio      | WAV, MP3 |
 
+Open http://localhost:8000. The model weights are downloaded from Hugging Face
+on the first analysis request.
+
+### Docker
+
+```bash
+make docker-build
+make docker-run
+```
+
+### Configuration
+
+| Variable        | Default                                     | Purpose                        |
+|-----------------|---------------------------------------------|--------------------------------|
+| `MODEL_NAME`    | `prithivMLmods/deepfake-detector-model-v1`  | Hugging Face model to load     |
+| `MAX_UPLOAD_MB` | `10`                                        | Maximum upload size in MB      |
+
+---
+
+## 🔌 API
+
+| Method | Path          | Description                          |
+|--------|---------------|--------------------------------------|
+| GET    | `/api/health` | Health check                         |
+| POST   | `/analyze`    | Multipart upload, form field `file`  |
+
+`/analyze` returns `overall_score` (0–100, probability the image is fake),
+`risk_level` (Low < 30 ≤ Medium < 60 ≤ High) and `indicators`.
+Errors: `400` empty/corrupt image, `413` file too large, `415` not an image.
+Uploaded files are deleted right after inference.
+
+## 📁 Supported Formats
+
+| Media Type | Formats              | Status                     |
+| ---------- | -------------------- | -------------------------- |
+| Image      | JPG, PNG, WEBP       | ✅ Supported               |
+| Video      | MP4, MOV             | 🚧 UI only – not yet in API |
+| Audio      | WAV, MP3             | 🚧 UI only – not yet in API |
+
+## 🧪 Running Tests
+
+```bash
+make install-dev
+make test
+```
+
+The tests stub out the model, so they run quickly without downloading weights.
+
+---
 
 ⭐ If you find this project useful, consider starring the repository!

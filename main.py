@@ -1,14 +1,11 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 import os
-import shutil
-import torch
+import uuid
 import numpy as np
-from PIL import Image
-
-from transformers import AutoImageProcessor, AutoModelForImageClassification
+from PIL import Image, UnidentifiedImageError
 
 # -------------------------
 # App setup
@@ -25,27 +22,60 @@ app.add_middleware(
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "10")) * 1024 * 1024
 
 # -------------------------
-# Load OLD HuggingFace model
+# HuggingFace model (loaded lazily on first request)
 # -------------------------
 
-MODEL_NAME = "prithivMLmods/deepfake-detector-model-v1"
+MODEL_NAME = os.getenv("MODEL_NAME", "prithivMLmods/deepfake-detector-model-v1")
 
-processor = AutoImageProcessor.from_pretrained(MODEL_NAME)
-model = AutoModelForImageClassification.from_pretrained(MODEL_NAME)
-model.eval()
+_processor = None
+_model = None
+_fake_label_index = None
+
+
+def _load_model():
+    """Load the model once. Deferred so the app starts fast and tests can
+    run without downloading weights."""
+    global _processor, _model, _fake_label_index
+    if _model is None:
+        from transformers import AutoImageProcessor, AutoModelForImageClassification
+
+        _processor = AutoImageProcessor.from_pretrained(MODEL_NAME)
+        _model = AutoModelForImageClassification.from_pretrained(MODEL_NAME)
+        _model.eval()
+        # The model's labels are {0: "Fake", 1: "Real"}; look the index up
+        # from the config instead of hardcoding it so the score is P(fake).
+        _fake_label_index = next(
+            int(i) for i, label in _model.config.id2label.items()
+            if label.lower() == "fake"
+        )
+    return _processor, _model, _fake_label_index
 
 # -------------------------
 # Inference
 # -------------------------
 
 def deepfake_score(image_np):
+    """Return the probability (0-100) that the image is a deepfake."""
+    import torch
+
+    processor, model, fake_idx = _load_model()
     inputs = processor(images=image_np, return_tensors="pt")
     with torch.no_grad():
         outputs = model(**inputs)
         probs = torch.softmax(outputs.logits, dim=1)
-    return int(probs[0][1].item() * 100)
+    return int(probs[0][fake_idx].item() * 100)
+
+def classify_risk(score):
+    """Map a 0-100 deepfake probability to a human-readable risk band."""
+    if score < 30:
+        return "Low (Likely Real)"
+    if score < 60:
+        return "Medium (Inconclusive)"
+    return "High (Possible Deepfake)"
 
 # -------------------------
 # API
@@ -57,24 +87,40 @@ def health():
 
 @app.post("/analyze")
 async def analyze_file(file: UploadFile = File(...)):
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
+    if not (file.content_type or "").startswith("image/"):
+        raise HTTPException(status_code=415, detail="Only image files are supported")
+
+    # Never trust the client filename (path traversal / overwrites).
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        ext = ""
+    file_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}{ext}")
+
+    data = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
+        )
+    if not data:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
     with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        buffer.write(data)
 
-    if not file.content_type.startswith("image"):
-        return {"error": "Only image files are supported"}
-
-    img = Image.open(file_path).convert("RGB")
-    img_np = np.array(img)
+    try:
+        with Image.open(file_path) as img:
+            img_np = np.array(img.convert("RGB"))
+    except (UnidentifiedImageError, OSError):
+        raise HTTPException(status_code=400, detail="File is not a valid image")
+    finally:
+        # Uploads are only needed for inference; do not keep user images.
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
     score = deepfake_score(img_np)
 
-    risk_level = (
-        "Low (Likely Real)" if score < 30 else
-        "Medium (Inconclusive)" if score < 60 else
-        "High (Possible Deepfake)"
-    )
+    risk_level = classify_risk(score)
 
     return {
         "media_type": "Image",
