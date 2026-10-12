@@ -6,7 +6,7 @@ import os
 import uuid
 import torch
 import numpy as np
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 from transformers import AutoImageProcessor, AutoModelForImageClassification
 
@@ -86,8 +86,15 @@ async def analyze_file(file: UploadFile = File(...)):
     with open(file_path, "wb") as buffer:
         buffer.write(data)
 
-    img = Image.open(file_path).convert("RGB")
-    img_np = np.array(img)
+    try:
+        with Image.open(file_path) as img:
+            img_np = np.array(img.convert("RGB"))
+    except (UnidentifiedImageError, OSError):
+        raise HTTPException(status_code=400, detail="File is not a valid image")
+    finally:
+        # Uploads are only needed for inference; do not keep user images.
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
     score = deepfake_score(img_np)
 
