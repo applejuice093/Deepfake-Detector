@@ -12,6 +12,32 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 logger = logging.getLogger("deepfake_detector")
 
+
+def _env_int(name, default):
+    """Read a positive integer from the environment, falling back to
+    `default` (with a warning) instead of crashing at import time on typos
+    like MAX_UPLOAD_MB=10mb."""
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value <= 0:
+        logger.warning("Ignoring invalid %s=%r; using default %s", name, raw, default)
+        return default
+    return value
+
+
+def _cors_origins():
+    """Comma-separated CORS_ORIGINS, e.g. "https://a.com,https://b.com".
+    Defaults to "*" (any origin), matching the previous behaviour."""
+    raw = os.getenv("CORS_ORIGINS", "*")
+    origins = [o.strip() for o in raw.split(",") if o.strip()]
+    return origins or ["*"]
+
+
 # -------------------------
 # App setup
 # -------------------------
@@ -20,15 +46,15 @@ app = FastAPI(title="Deepfake Detection API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "10")) * 1024 * 1024
+MAX_UPLOAD_BYTES = _env_int("MAX_UPLOAD_MB", 10) * 1024 * 1024
 # Highly compressible images can be tiny on the wire but expand to gigabytes
 # once decoded ("decompression bombs"). 40 MP comfortably covers phone photos.
-MAX_IMAGE_PIXELS = 40_000_000
+MAX_IMAGE_PIXELS = _env_int("MAX_IMAGE_MEGAPIXELS", 40) * 1_000_000
 
 # -------------------------
 # HuggingFace model (loaded lazily on first request)
