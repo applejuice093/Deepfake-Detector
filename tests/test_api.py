@@ -22,10 +22,6 @@ def _png_bytes():
     return buf.getvalue()
 
 
-def _uploads():
-    return sorted(f for f in os.listdir(main.UPLOAD_DIR) if f != ".gitkeep")
-
-
 @pytest.mark.parametrize(
     "score,expected",
     [(0, "Low"), (29, "Low"), (30, "Medium"), (59, "Medium"), (60, "High"), (100, "High")],
@@ -39,14 +35,18 @@ def test_health(client):
 
 
 def test_analyze_image_returns_score(client):
-    before = _uploads()
     res = client.post("/analyze", files={"file": ("a.png", _png_bytes(), "image/png")})
     assert res.status_code == 200
     body = res.json()
     assert body["overall_score"] == 75
     assert body["risk_level"].startswith("High")
-    # upload must be cleaned up after inference
-    assert _uploads() == before
+
+
+def test_uploads_are_never_written_to_disk(client, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    res = client.post("/analyze", files={"file": ("a.png", _png_bytes(), "image/png")})
+    assert res.status_code == 200
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_rejects_non_image(client):
@@ -55,10 +55,8 @@ def test_rejects_non_image(client):
 
 
 def test_rejects_corrupt_image(client):
-    before = _uploads()
     res = client.post("/analyze", files={"file": ("x.png", b"not an image", "image/png")})
     assert res.status_code == 400
-    assert _uploads() == before
 
 
 def test_rejects_empty_file(client):
@@ -77,4 +75,47 @@ def test_path_traversal_filename_is_ignored(client):
         "/analyze", files={"file": ("../../evil.png", _png_bytes(), "image/png")}
     )
     assert res.status_code == 200
-    assert not os.path.exists(os.path.join(os.path.dirname(main.UPLOAD_DIR) or ".", "..", "evil.png"))
+    assert not os.path.exists(os.path.join("..", "evil.png"))
+
+
+def test_rejects_images_with_too_many_pixels(client, monkeypatch):
+    monkeypatch.setattr(main, "MAX_IMAGE_PIXELS", 50)  # 8x8 = 64 px > 50
+    res = client.post("/analyze", files={"file": ("a.png", _png_bytes(), "image/png")})
+    assert res.status_code == 413
+    assert "too large" in res.json()["detail"]
+
+
+def test_model_failure_returns_503(monkeypatch):
+    def broken(image_np):
+        raise OSError("could not download weights")
+
+    monkeypatch.setattr(main, "deepfake_score", broken)
+    res = TestClient(main.app).post(
+        "/analyze", files={"file": ("a.png", _png_bytes(), "image/png")}
+    )
+    assert res.status_code == 503
+    assert "weights" not in res.json()["detail"]  # internals are not leaked
+
+
+def test_exif_orientation_is_applied_before_inference(monkeypatch):
+    seen = {}
+
+    def capture(image_np):
+        seen["shape"] = image_np.shape
+        return 10
+
+    monkeypatch.setattr(main, "deepfake_score", capture)
+
+    # 8 wide x 4 tall, tagged "rotate 90 CW" (EXIF orientation 6) like a
+    # portrait phone photo; upright it is 4 wide x 8 tall.
+    img = Image.new("RGB", (8, 4), "blue")
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", exif=exif.tobytes())
+
+    res = TestClient(main.app).post(
+        "/analyze", files={"file": ("p.jpg", buf.getvalue(), "image/jpeg")}
+    )
+    assert res.status_code == 200
+    assert seen["shape"] == (8, 4, 3)  # (height, width, channels)

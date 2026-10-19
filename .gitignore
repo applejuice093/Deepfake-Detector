@@ -8,9 +8,9 @@ venv/
 # Environment / secrets
 .env
 
-# User uploads (runtime data, may contain personal images)
-uploads/*
-!uploads/.gitkeep
+
+# Legacy upload folder from older versions (may contain personal images)
+uploads/
 
 # OS / editor
 .DS_Store

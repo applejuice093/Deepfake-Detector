@@ -1,11 +1,42 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+import io
+import logging
 import os
-import uuid
+import threading
 import numpy as np
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
+
+logger = logging.getLogger("deepfake_detector")
+
+
+def _env_int(name, default):
+    """Read a positive integer from the environment, falling back to
+    `default` (with a warning) instead of crashing at import time on typos
+    like MAX_UPLOAD_MB=10mb."""
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value <= 0:
+        logger.warning("Ignoring invalid %s=%r; using default %s", name, raw, default)
+        return default
+    return value
+
+
+def _cors_origins():
+    """Comma-separated CORS_ORIGINS, e.g. "https://a.com,https://b.com".
+    Defaults to "*" (any origin), matching the previous behaviour."""
+    raw = os.getenv("CORS_ORIGINS", "*")
+    origins = [o.strip() for o in raw.split(",") if o.strip()]
+    return origins or ["*"]
+
 
 # -------------------------
 # App setup
@@ -15,15 +46,15 @@ app = FastAPI(title="Deepfake Detection API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
-MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "10")) * 1024 * 1024
+MAX_UPLOAD_BYTES = _env_int("MAX_UPLOAD_MB", 10) * 1024 * 1024
+# Highly compressible images can be tiny on the wire but expand to gigabytes
+# once decoded ("decompression bombs"). 40 MP comfortably covers phone photos.
+MAX_IMAGE_PIXELS = _env_int("MAX_IMAGE_MEGAPIXELS", 40) * 1_000_000
 
 # -------------------------
 # HuggingFace model (loaded lazily on first request)
@@ -34,24 +65,34 @@ MODEL_NAME = os.getenv("MODEL_NAME", "prithivMLmods/deepfake-detector-model-v1")
 _processor = None
 _model = None
 _fake_label_index = None
+_model_lock = threading.Lock()
 
 
 def _load_model():
     """Load the model once. Deferred so the app starts fast and tests can
     run without downloading weights."""
     global _processor, _model, _fake_label_index
-    if _model is None:
-        from transformers import AutoImageProcessor, AutoModelForImageClassification
+    if _model is not None:
+        return _processor, _model, _fake_label_index
+    # Inference runs in a thread pool, so concurrent first requests could
+    # otherwise each download/load the weights. Double-checked locking makes
+    # the load happen exactly once.
+    with _model_lock:
+        if _model is None:
+            from transformers import AutoImageProcessor, AutoModelForImageClassification
 
-        _processor = AutoImageProcessor.from_pretrained(MODEL_NAME)
-        _model = AutoModelForImageClassification.from_pretrained(MODEL_NAME)
-        _model.eval()
-        # The model's labels are {0: "Fake", 1: "Real"}; look the index up
-        # from the config instead of hardcoding it so the score is P(fake).
-        _fake_label_index = next(
-            int(i) for i, label in _model.config.id2label.items()
-            if label.lower() == "fake"
-        )
+            processor = AutoImageProcessor.from_pretrained(MODEL_NAME)
+            model = AutoModelForImageClassification.from_pretrained(MODEL_NAME)
+            model.eval()
+            # The model's labels are {0: "Fake", 1: "Real"}; look the index up
+            # from the config instead of hardcoding it so the score is P(fake).
+            fake_idx = next(
+                int(i) for i, label in model.config.id2label.items()
+                if label.lower() == "fake"
+            )
+            # Publish the model last so other threads never see a half-set state.
+            _processor, _fake_label_index = processor, fake_idx
+            _model = model
     return _processor, _model, _fake_label_index
 
 # -------------------------
@@ -90,12 +131,6 @@ async def analyze_file(file: UploadFile = File(...)):
     if not (file.content_type or "").startswith("image/"):
         raise HTTPException(status_code=415, detail="Only image files are supported")
 
-    # Never trust the client filename (path traversal / overwrites).
-    ext = os.path.splitext(file.filename or "")[1].lower()
-    if ext not in ALLOWED_EXTENSIONS:
-        ext = ""
-    file_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}{ext}")
-
     data = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(
@@ -105,20 +140,41 @@ async def analyze_file(file: UploadFile = File(...)):
     if not data:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
-    with open(file_path, "wb") as buffer:
-        buffer.write(data)
-
+    # Decode straight from memory: user images never touch the disk, so there
+    # is nothing to clean up and no filename/path handling to get wrong.
     try:
-        with Image.open(file_path) as img:
-            img_np = np.array(img.convert("RGB"))
+        with Image.open(io.BytesIO(data)) as img:
+            # Image.open only parses the header, so the size check is cheap
+            # and happens before any pixel data is decoded.
+            width, height = img.size
+            if width * height > MAX_IMAGE_PIXELS:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Image dimensions too large ({width}x{height}); "
+                    f"max {MAX_IMAGE_PIXELS // 1_000_000} megapixels",
+                )
+            # Phone cameras store rotation in EXIF instead of rotating pixels;
+            # apply it so the model sees the photo upright, as the user does.
+            upright = ImageOps.exif_transpose(img)
+            img_np = np.array(upright.convert("RGB"))
+    except Image.DecompressionBombError:
+        raise HTTPException(status_code=413, detail="Image dimensions too large")
     except (UnidentifiedImageError, OSError):
         raise HTTPException(status_code=400, detail="File is not a valid image")
-    finally:
-        # Uploads are only needed for inference; do not keep user images.
-        if os.path.exists(file_path):
-            os.remove(file_path)
 
-    score = deepfake_score(img_np)
+    # Model inference is CPU-bound and synchronous; run it in the thread pool so
+    # it does not block the event loop (health checks, other uploads) meanwhile.
+    try:
+        score = await run_in_threadpool(deepfake_score, img_np)
+    except Exception:
+        # Typically the weights could not be downloaded/loaded (no network,
+        # bad MODEL_NAME) or the model failed on this input. Log the details
+        # server-side and give the client a clear, non-leaky message.
+        logger.exception("Deepfake inference failed (model=%s)", MODEL_NAME)
+        raise HTTPException(
+            status_code=503,
+            detail="The detection model is unavailable right now. Please try again later.",
+        )
 
     risk_level = classify_risk(score)
 

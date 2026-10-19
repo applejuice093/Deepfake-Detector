@@ -73,6 +73,8 @@ function setupFileHandler(type) {
 function handleFile(file, type, previewEl) {
     files[type] = file;
 
+    // Release the previous preview's blob URL so repeated uploads don't leak memory.
+    if (previewEl.src.startsWith("blob:")) URL.revokeObjectURL(previewEl.src);
     const url = URL.createObjectURL(file);
     previewEl.src = url;
     previewEl.style.display = "block";
@@ -98,6 +100,7 @@ function resetUpload(type) {
     const dropZone = document.getElementById(`${type}-drop-zone`);
 
     input.value = "";
+    if (preview.src.startsWith("blob:")) URL.revokeObjectURL(preview.src);
     preview.src = "";
     preview.style.display = "none";
 
@@ -138,12 +141,11 @@ async function runDetection(type) {
     formData.append("file", files[type]);
 
     try {
-        // 🔑 IMPORTANT: relative URL (works locally + HF)
+        // Relative URL so it works both locally and on the Hugging Face Space.
+        // The API needs no auth header; the browser sets the multipart
+        // Content-Type (with boundary) itself.
         const res = await fetch("/analyze", {
             method: "POST",
-            headers: {
-                "x-api-key": "local-dev-key-123" // dev only
-            },
             body: formData
         });
 
@@ -187,37 +189,48 @@ async function runDetection(type) {
         const old = infoSection.querySelector(".indicators");
         if (old) old.remove();
 
-        let html = `
-            <div class="indicators">
-                <div class="section-title">Indicators</div>
-        `;
+        // Build with DOM APIs + textContent rather than innerHTML so API
+        // values can never be interpreted as markup.
+        const indicators = document.createElement("div");
+        indicators.className = "indicators";
 
-        data.indicators.forEach(ind => {
-            html += `
-                <p><strong>${ind.name}:</strong> ${ind.score}%</p>
-            `;
+        const title = document.createElement("div");
+        title.className = "section-title";
+        title.textContent = "Indicators";
+        indicators.appendChild(title);
+
+        (data.indicators || []).forEach(ind => {
+            const row = document.createElement("p");
+            const name = document.createElement("strong");
+            name.textContent = `${ind.name}:`;
+            row.append(name, ` ${ind.score}%`);
+            indicators.appendChild(row);
         });
 
-        html += `</div>`;
-        infoSection.insertAdjacentHTML("beforeend", html);
+        infoSection.appendChild(indicators);
 
         showToast("Analysis complete.");
     } catch (err) {
         console.error(err);
         showToast(err.message || "Server error. Check backend.");
         resultBox.style.display = "none";
+    } finally {
+        // Always restore the button, even if rendering the result throws.
+        btn.disabled = false;
+        btn.innerHTML = `<span>Detect Forgery</span>`;
     }
-
-    btn.disabled = false;
-    btn.innerHTML = `<span>Detect Forgery</span>`;
 }
 
 // ----------------------------
 // Toast Notification
 // ----------------------------
+let toastTimer = null;
+
 function showToast(message) {
     const toast = document.getElementById("toast");
     toast.textContent = message;
     toast.classList.add("show");
-    setTimeout(() => toast.classList.remove("show"), 3000);
+    // Restart the timer so a new toast isn't hidden early by an older one.
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove("show"), 3000);
 }
