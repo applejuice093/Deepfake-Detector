@@ -76,3 +76,10 @@ def test_path_traversal_filename_is_ignored(client):
     )
     assert res.status_code == 200
     assert not os.path.exists(os.path.join("..", "evil.png"))
+
+
+def test_rejects_images_with_too_many_pixels(client, monkeypatch):
+    monkeypatch.setattr(main, "MAX_IMAGE_PIXELS", 50)  # 8x8 = 64 px > 50
+    res = client.post("/analyze", files={"file": ("a.png", _png_bytes(), "image/png")})
+    assert res.status_code == 413
+    assert "too large" in res.json()["detail"]

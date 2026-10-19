@@ -21,6 +21,9 @@ app.add_middleware(
 )
 
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "10")) * 1024 * 1024
+# Highly compressible images can be tiny on the wire but expand to gigabytes
+# once decoded ("decompression bombs"). 40 MP comfortably covers phone photos.
+MAX_IMAGE_PIXELS = 40_000_000
 
 # -------------------------
 # HuggingFace model (loaded lazily on first request)
@@ -100,7 +103,18 @@ async def analyze_file(file: UploadFile = File(...)):
     # is nothing to clean up and no filename/path handling to get wrong.
     try:
         with Image.open(io.BytesIO(data)) as img:
+            # Image.open only parses the header, so the size check is cheap
+            # and happens before any pixel data is decoded.
+            width, height = img.size
+            if width * height > MAX_IMAGE_PIXELS:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Image dimensions too large ({width}x{height}); "
+                    f"max {MAX_IMAGE_PIXELS // 1_000_000} megapixels",
+                )
             img_np = np.array(img.convert("RGB"))
+    except Image.DecompressionBombError:
+        raise HTTPException(status_code=413, detail="Image dimensions too large")
     except (UnidentifiedImageError, OSError):
         raise HTTPException(status_code=400, detail="File is not a valid image")
 
