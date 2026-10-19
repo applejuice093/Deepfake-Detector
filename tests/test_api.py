@@ -95,3 +95,27 @@ def test_model_failure_returns_503(monkeypatch):
     )
     assert res.status_code == 503
     assert "weights" not in res.json()["detail"]  # internals are not leaked
+
+
+def test_exif_orientation_is_applied_before_inference(monkeypatch):
+    seen = {}
+
+    def capture(image_np):
+        seen["shape"] = image_np.shape
+        return 10
+
+    monkeypatch.setattr(main, "deepfake_score", capture)
+
+    # 8 wide x 4 tall, tagged "rotate 90 CW" (EXIF orientation 6) like a
+    # portrait phone photo; upright it is 4 wide x 8 tall.
+    img = Image.new("RGB", (8, 4), "blue")
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", exif=exif.tobytes())
+
+    res = TestClient(main.app).post(
+        "/analyze", files={"file": ("p.jpg", buf.getvalue(), "image/jpeg")}
+    )
+    assert res.status_code == 200
+    assert seen["shape"] == (8, 4, 3)  # (height, width, channels)

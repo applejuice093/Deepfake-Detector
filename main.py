@@ -8,7 +8,7 @@ import logging
 import os
 import threading
 import numpy as np
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 logger = logging.getLogger("deepfake_detector")
 
@@ -127,7 +127,10 @@ async def analyze_file(file: UploadFile = File(...)):
                     detail=f"Image dimensions too large ({width}x{height}); "
                     f"max {MAX_IMAGE_PIXELS // 1_000_000} megapixels",
                 )
-            img_np = np.array(img.convert("RGB"))
+            # Phone cameras store rotation in EXIF instead of rotating pixels;
+            # apply it so the model sees the photo upright, as the user does.
+            upright = ImageOps.exif_transpose(img)
+            img_np = np.array(upright.convert("RGB"))
     except Image.DecompressionBombError:
         raise HTTPException(status_code=413, detail="Image dimensions too large")
     except (UnidentifiedImageError, OSError):
