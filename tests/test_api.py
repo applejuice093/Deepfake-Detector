@@ -83,3 +83,15 @@ def test_rejects_images_with_too_many_pixels(client, monkeypatch):
     res = client.post("/analyze", files={"file": ("a.png", _png_bytes(), "image/png")})
     assert res.status_code == 413
     assert "too large" in res.json()["detail"]
+
+
+def test_model_failure_returns_503(monkeypatch):
+    def broken(image_np):
+        raise OSError("could not download weights")
+
+    monkeypatch.setattr(main, "deepfake_score", broken)
+    res = TestClient(main.app).post(
+        "/analyze", files={"file": ("a.png", _png_bytes(), "image/png")}
+    )
+    assert res.status_code == 503
+    assert "weights" not in res.json()["detail"]  # internals are not leaked

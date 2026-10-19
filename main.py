@@ -4,10 +4,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 import io
+import logging
 import os
 import threading
 import numpy as np
 from PIL import Image, UnidentifiedImageError
+
+logger = logging.getLogger("deepfake_detector")
 
 # -------------------------
 # App setup
@@ -132,7 +135,17 @@ async def analyze_file(file: UploadFile = File(...)):
 
     # Model inference is CPU-bound and synchronous; run it in the thread pool so
     # it does not block the event loop (health checks, other uploads) meanwhile.
-    score = await run_in_threadpool(deepfake_score, img_np)
+    try:
+        score = await run_in_threadpool(deepfake_score, img_np)
+    except Exception:
+        # Typically the weights could not be downloaded/loaded (no network,
+        # bad MODEL_NAME) or the model failed on this input. Log the details
+        # server-side and give the client a clear, non-leaky message.
+        logger.exception("Deepfake inference failed (model=%s)", MODEL_NAME)
+        raise HTTPException(
+            status_code=503,
+            detail="The detection model is unavailable right now. Please try again later.",
+        )
 
     risk_level = classify_risk(score)
 
