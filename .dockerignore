@@ -7,8 +7,6 @@ __pycache__/
 venv/
 .env
 tests/
-uploads/*
-!uploads/.gitkeep
 requirements-dev.txt
 Makefile
 README.md

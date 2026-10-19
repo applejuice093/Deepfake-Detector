@@ -2,8 +2,8 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+import io
 import os
-import uuid
 import numpy as np
 from PIL import Image, UnidentifiedImageError
 
@@ -20,9 +20,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "10")) * 1024 * 1024
 
 # -------------------------
@@ -90,12 +87,6 @@ async def analyze_file(file: UploadFile = File(...)):
     if not (file.content_type or "").startswith("image/"):
         raise HTTPException(status_code=415, detail="Only image files are supported")
 
-    # Never trust the client filename (path traversal / overwrites).
-    ext = os.path.splitext(file.filename or "")[1].lower()
-    if ext not in ALLOWED_EXTENSIONS:
-        ext = ""
-    file_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}{ext}")
-
     data = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(
@@ -105,18 +96,13 @@ async def analyze_file(file: UploadFile = File(...)):
     if not data:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
-    with open(file_path, "wb") as buffer:
-        buffer.write(data)
-
+    # Decode straight from memory: user images never touch the disk, so there
+    # is nothing to clean up and no filename/path handling to get wrong.
     try:
-        with Image.open(file_path) as img:
+        with Image.open(io.BytesIO(data)) as img:
             img_np = np.array(img.convert("RGB"))
     except (UnidentifiedImageError, OSError):
         raise HTTPException(status_code=400, detail="File is not a valid image")
-    finally:
-        # Uploads are only needed for inference; do not keep user images.
-        if os.path.exists(file_path):
-            os.remove(file_path)
 
     score = deepfake_score(img_np)
 

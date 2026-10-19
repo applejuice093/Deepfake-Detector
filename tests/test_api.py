@@ -22,10 +22,6 @@ def _png_bytes():
     return buf.getvalue()
 
 
-def _uploads():
-    return sorted(f for f in os.listdir(main.UPLOAD_DIR) if f != ".gitkeep")
-
-
 @pytest.mark.parametrize(
     "score,expected",
     [(0, "Low"), (29, "Low"), (30, "Medium"), (59, "Medium"), (60, "High"), (100, "High")],
@@ -39,14 +35,18 @@ def test_health(client):
 
 
 def test_analyze_image_returns_score(client):
-    before = _uploads()
     res = client.post("/analyze", files={"file": ("a.png", _png_bytes(), "image/png")})
     assert res.status_code == 200
     body = res.json()
     assert body["overall_score"] == 75
     assert body["risk_level"].startswith("High")
-    # upload must be cleaned up after inference
-    assert _uploads() == before
+
+
+def test_uploads_are_never_written_to_disk(client, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    res = client.post("/analyze", files={"file": ("a.png", _png_bytes(), "image/png")})
+    assert res.status_code == 200
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_rejects_non_image(client):
@@ -55,10 +55,8 @@ def test_rejects_non_image(client):
 
 
 def test_rejects_corrupt_image(client):
-    before = _uploads()
     res = client.post("/analyze", files={"file": ("x.png", b"not an image", "image/png")})
     assert res.status_code == 400
-    assert _uploads() == before
 
 
 def test_rejects_empty_file(client):
@@ -77,4 +75,4 @@ def test_path_traversal_filename_is_ignored(client):
         "/analyze", files={"file": ("../../evil.png", _png_bytes(), "image/png")}
     )
     assert res.status_code == 200
-    assert not os.path.exists(os.path.join(os.path.dirname(main.UPLOAD_DIR) or ".", "..", "evil.png"))
+    assert not os.path.exists(os.path.join("..", "evil.png"))
