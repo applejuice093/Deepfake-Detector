@@ -1,9 +1,11 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 import io
 import os
+import threading
 import numpy as np
 from PIL import Image, UnidentifiedImageError
 
@@ -34,24 +36,34 @@ MODEL_NAME = os.getenv("MODEL_NAME", "prithivMLmods/deepfake-detector-model-v1")
 _processor = None
 _model = None
 _fake_label_index = None
+_model_lock = threading.Lock()
 
 
 def _load_model():
     """Load the model once. Deferred so the app starts fast and tests can
     run without downloading weights."""
     global _processor, _model, _fake_label_index
-    if _model is None:
-        from transformers import AutoImageProcessor, AutoModelForImageClassification
+    if _model is not None:
+        return _processor, _model, _fake_label_index
+    # Inference runs in a thread pool, so concurrent first requests could
+    # otherwise each download/load the weights. Double-checked locking makes
+    # the load happen exactly once.
+    with _model_lock:
+        if _model is None:
+            from transformers import AutoImageProcessor, AutoModelForImageClassification
 
-        _processor = AutoImageProcessor.from_pretrained(MODEL_NAME)
-        _model = AutoModelForImageClassification.from_pretrained(MODEL_NAME)
-        _model.eval()
-        # The model's labels are {0: "Fake", 1: "Real"}; look the index up
-        # from the config instead of hardcoding it so the score is P(fake).
-        _fake_label_index = next(
-            int(i) for i, label in _model.config.id2label.items()
-            if label.lower() == "fake"
-        )
+            processor = AutoImageProcessor.from_pretrained(MODEL_NAME)
+            model = AutoModelForImageClassification.from_pretrained(MODEL_NAME)
+            model.eval()
+            # The model's labels are {0: "Fake", 1: "Real"}; look the index up
+            # from the config instead of hardcoding it so the score is P(fake).
+            fake_idx = next(
+                int(i) for i, label in model.config.id2label.items()
+                if label.lower() == "fake"
+            )
+            # Publish the model last so other threads never see a half-set state.
+            _processor, _fake_label_index = processor, fake_idx
+            _model = model
     return _processor, _model, _fake_label_index
 
 # -------------------------
@@ -118,7 +130,9 @@ async def analyze_file(file: UploadFile = File(...)):
     except (UnidentifiedImageError, OSError):
         raise HTTPException(status_code=400, detail="File is not a valid image")
 
-    score = deepfake_score(img_np)
+    # Model inference is CPU-bound and synchronous; run it in the thread pool so
+    # it does not block the event loop (health checks, other uploads) meanwhile.
+    score = await run_in_threadpool(deepfake_score, img_np)
 
     risk_level = classify_risk(score)
 
