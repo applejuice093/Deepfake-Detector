@@ -138,12 +138,11 @@ async function runDetection(type) {
     formData.append("file", files[type]);
 
     try {
-        // 🔑 IMPORTANT: relative URL (works locally + HF)
+        // Relative URL so it works both locally and on the Hugging Face Space.
+        // The API needs no auth header; the browser sets the multipart
+        // Content-Type (with boundary) itself.
         const res = await fetch("/analyze", {
             method: "POST",
-            headers: {
-                "x-api-key": "local-dev-key-123" // dev only
-            },
             body: formData
         });
 
@@ -187,19 +186,25 @@ async function runDetection(type) {
         const old = infoSection.querySelector(".indicators");
         if (old) old.remove();
 
-        let html = `
-            <div class="indicators">
-                <div class="section-title">Indicators</div>
-        `;
+        // Build with DOM APIs + textContent rather than innerHTML so API
+        // values can never be interpreted as markup.
+        const indicators = document.createElement("div");
+        indicators.className = "indicators";
 
-        data.indicators.forEach(ind => {
-            html += `
-                <p><strong>${ind.name}:</strong> ${ind.score}%</p>
-            `;
+        const title = document.createElement("div");
+        title.className = "section-title";
+        title.textContent = "Indicators";
+        indicators.appendChild(title);
+
+        (data.indicators || []).forEach(ind => {
+            const row = document.createElement("p");
+            const name = document.createElement("strong");
+            name.textContent = `${ind.name}:`;
+            row.append(name, ` ${ind.score}%`);
+            indicators.appendChild(row);
         });
 
-        html += `</div>`;
-        infoSection.insertAdjacentHTML("beforeend", html);
+        infoSection.appendChild(indicators);
 
         showToast("Analysis complete.");
     } catch (err) {
