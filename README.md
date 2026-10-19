@@ -1,7 +1,7 @@
 # 🕵️ DeepFake Detection Tool
 
 An AI-powered web application that detects **deepfake content** across **images, videos, and audio**.  
-The system uses a **custom-trained deep learning model** exposed via a **FastAPI backend**, with a lightweight web-based frontend for real-time analysis.
+The system uses a **pretrained Hugging Face image classifier** exposed via a **FastAPI backend**, with a lightweight web-based frontend for real-time analysis.
 
 ---
 
@@ -20,24 +20,26 @@ A live, interactive demo of the **DeepFake Detection Tool** is hosted on **Huggi
 - ⚡ FastAPI-based backend  
 - 🌐 Web frontend (HTML, CSS, JavaScript)  
 - ☁️ Cloud deployment (Hugging Face)  
-- 🔐 Secure API-key based access  
+- 🔒 Privacy-friendly: uploads are analysed in memory and never written to disk  
 
 ---
 
 ## 🧠 How It Works
 
-1. User uploads an image, video, or audio file
-2. Frontend sends the file to the FastAPI backend
-3. Backend processes the input using a trained AI model
-4. The model analyzes deepfake artifacts and inconsistencies
-5. Result is returned as **Real/Fake** with a confidence score
+1. User uploads an image (video and audio tabs are UI previews for now)
+2. Frontend sends the file to the FastAPI `/analyze` endpoint
+3. Backend validates it (type, size, dimensions), decodes it in memory and
+   applies the EXIF orientation so phone photos are upright
+4. The pretrained model runs in a worker thread and returns the probability
+   that the image is fake
+5. Result is returned as a 0–100 score with a Low / Medium / High risk band
 
 ---
 
 ## 🏗️ System Architecture
 ```mermaid
 flowchart TD
-    A["Frontend (HTML CSS JS)"] --> B["FastAPI Backend (API and Auth)"]
+    A["Frontend (HTML CSS JS)"] --> B["FastAPI Backend (validation)"]
     B --> C["DeepFake Detection Model (AI ML)"]
     C --> D["Result (Prediction and Confidence)"]
 
@@ -93,6 +95,11 @@ make docker-run
 |-----------------|---------------------------------------------|--------------------------------|
 | `MODEL_NAME`    | `prithivMLmods/deepfake-detector-model-v1`  | Hugging Face model to load     |
 | `MAX_UPLOAD_MB` | `10`                                        | Maximum upload size in MB      |
+| `MAX_IMAGE_MEGAPIXELS` | `40`                                 | Maximum decoded image size (guards against decompression bombs) |
+| `CORS_ORIGINS`  | `*`                                         | Comma-separated origins allowed to call the API |
+
+Invalid numeric values fall back to the default with a warning instead of
+stopping the server.
 
 ---
 
@@ -105,8 +112,15 @@ make docker-run
 
 `/analyze` returns `overall_score` (0–100, probability the image is fake),
 `risk_level` (Low < 30 ≤ Medium < 60 ≤ High) and `indicators`.
-Errors: `400` empty/corrupt image, `413` file too large, `415` not an image.
-Uploaded files are deleted right after inference.
+Errors: `400` empty/corrupt image, `413` file or image dimensions too large,
+`415` not an image, `503` model could not be loaded or run (e.g. no network
+for the first weights download). Uploads are processed in memory and never
+stored. There is no authentication layer; restrict `CORS_ORIGINS` or put the
+API behind a proxy if you expose it publicly.
+
+```bash
+curl -F "file=@photo.jpg" http://localhost:8000/analyze
+```
 
 ## 📁 Supported Formats
 
@@ -123,7 +137,8 @@ make install-dev
 make test
 ```
 
-The tests stub out the model, so they run quickly without downloading weights.
+The tests stub out the model (and `transformers`), so they run quickly without
+downloading weights or installing PyTorch.
 
 ---
 
