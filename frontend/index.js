@@ -70,7 +70,31 @@ function setupFileHandler(type) {
     });
 }
 
+// Mirrors the server's MAX_UPLOAD_MB default so users get instant feedback
+// instead of uploading a large file only to receive a 413.
+const MAX_UPLOAD_MB = 10;
+
+function validateFile(file, type) {
+    // Drag-and-drop bypasses the input's `accept` filter, so check here too.
+    if (!file.type.startsWith(`${type}/`)) {
+        return `Please choose a ${type} file (got ${file.type || "unknown type"}).`;
+    }
+    if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+        return `File is too large (max ${MAX_UPLOAD_MB} MB).`;
+    }
+    if (file.size === 0) {
+        return "File is empty.";
+    }
+    return null;
+}
+
 function handleFile(file, type, previewEl) {
+    const problem = validateFile(file, type);
+    if (problem) {
+        showToast(problem);
+        return;
+    }
+
     files[type] = file;
 
     // Release the previous preview's blob URL so repeated uploads don't leak memory.
