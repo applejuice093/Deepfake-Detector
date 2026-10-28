@@ -56,6 +56,17 @@ MAX_UPLOAD_BYTES = _env_int("MAX_UPLOAD_MB", 10) * 1024 * 1024
 # once decoded ("decompression bombs"). 40 MP comfortably covers phone photos.
 MAX_IMAGE_PIXELS = _env_int("MAX_IMAGE_MEGAPIXELS", 40) * 1_000_000
 
+# Only decode common photo formats. Pillow otherwise auto-detects dozens of
+# formats from the file header (ignoring the client-supplied Content-Type),
+# including EPS, which shells out to Ghostscript, and rarely-used parsers
+# that widen the attack surface. MPO is how many cameras save JPEGs.
+# Image.init() registers every plugin up front; Image.open(formats=...)
+# raises KeyError for plugins (like MPO) that are not loaded yet.
+Image.init()
+ALLOWED_IMAGE_FORMATS = tuple(
+    f for f in ("JPEG", "MPO", "PNG", "WEBP", "GIF", "BMP", "TIFF") if f in Image.OPEN
+)
+
 # -------------------------
 # HuggingFace model (loaded lazily on first request)
 # -------------------------
@@ -168,7 +179,7 @@ async def analyze_file(file: UploadFile = File(...)):
     # Decode straight from memory: user images never touch the disk, so there
     # is nothing to clean up and no filename/path handling to get wrong.
     try:
-        with Image.open(io.BytesIO(data)) as img:
+        with Image.open(io.BytesIO(data), formats=ALLOWED_IMAGE_FORMATS) as img:
             # Image.open only parses the header, so the size check is cheap
             # and happens before any pixel data is decoded.
             width, height = img.size
@@ -185,7 +196,10 @@ async def analyze_file(file: UploadFile = File(...)):
     except Image.DecompressionBombError:
         raise HTTPException(status_code=413, detail="Image dimensions too large")
     except (UnidentifiedImageError, OSError):
-        raise HTTPException(status_code=400, detail="File is not a valid image")
+        raise HTTPException(
+            status_code=400,
+            detail="File is not a valid image. Supported formats: JPEG, PNG, WebP, GIF, BMP, TIFF",
+        )
 
     # Model inference is CPU-bound and synchronous; run it in the thread pool so
     # it does not block the event loop (health checks, other uploads) meanwhile.

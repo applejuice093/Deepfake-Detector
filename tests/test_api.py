@@ -119,3 +119,21 @@ def test_exif_orientation_is_applied_before_inference(monkeypatch):
     )
     assert res.status_code == 200
     assert seen["shape"] == (8, 4, 3)  # (height, width, channels)
+
+
+@pytest.mark.parametrize("fmt,mime", [("WEBP", "image/webp"), ("GIF", "image/gif"), ("BMP", "image/bmp")])
+def test_accepts_common_formats(client, fmt, mime):
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), "green").save(buf, format=fmt)
+    res = client.post("/analyze", files={"file": ("a", buf.getvalue(), mime)})
+    assert res.status_code == 200
+
+
+def test_rejects_formats_outside_the_allowlist(client):
+    # A valid ICO file is decodable by Pillow but is not an allowed format,
+    # even when the client claims it is a PNG.
+    buf = io.BytesIO()
+    Image.new("RGB", (16, 16), "red").save(buf, format="ICO")
+    res = client.post("/analyze", files={"file": ("a.png", buf.getvalue(), "image/png")})
+    assert res.status_code == 400
+    assert "Supported formats" in res.json()["detail"]
