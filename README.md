@@ -1,6 +1,6 @@
 # 🕵️ DeepFake Detection Tool
 
-An AI-powered web application that detects **deepfake content** across **images, videos, and audio**.  
+An AI-powered web application that detects **deepfake images**, with video and audio analysis planned (their tabs are UI previews today).  
 The system uses a **pretrained Hugging Face image classifier** exposed via a **FastAPI backend**, with a lightweight web-based frontend for real-time analysis.
 
 ---
@@ -65,7 +65,7 @@ flowchart TD
 - NumPy / Pillow
 
 ### Deployment
-- Render (Backend & Model)
+- Hugging Face Spaces (live demo) or any Docker host via the included `Dockerfile`
 - GitHub (Version Control)
 
 ---
@@ -107,10 +107,11 @@ stopping the server.
 
 | Method | Path          | Description                          |
 |--------|---------------|--------------------------------------|
-| GET    | `/api/health` | Health check                         |
+| GET    | `/api/health` | Health check: `status`, `model`, `model_loaded` |
 | POST   | `/analyze`    | Multipart upload, form field `file`  |
 
-`/analyze` returns `overall_score` (0–100, probability the image is fake),
+`/analyze` returns `model` (the classifier used), `overall_score` (0–100,
+rounded probability the image is fake),
 `risk_level` (Low < 30 ≤ Medium < 60 ≤ High) and `indicators`.
 Errors: `400` empty/corrupt image, `413` file or image dimensions too large,
 `415` not an image, `503` model could not be loaded or run (e.g. no network
@@ -126,7 +127,7 @@ curl -F "file=@photo.jpg" http://localhost:8000/analyze
 
 | Media Type | Formats              | Status                     |
 | ---------- | -------------------- | -------------------------- |
-| Image      | JPG, PNG, WEBP       | ✅ Supported               |
+| Image      | JPG, PNG, WEBP, GIF, BMP, TIFF | ✅ Supported (other formats are rejected with `400`) |
 | Video      | MP4, MOV             | 🚧 UI only – not yet in API |
 | Audio      | WAV, MP3             | 🚧 UI only – not yet in API |
 
@@ -138,7 +139,21 @@ make test
 ```
 
 The tests stub out the model (and `transformers`), so they run quickly without
-downloading weights or installing PyTorch.
+downloading weights. `make install-dev` still installs PyTorch from
+`requirements.txt`; to skip it for a quick test-only setup:
+
+```bash
+pip install fastapi uvicorn numpy pillow python-multipart pytest httpx
+python -m pytest -q
+```
+
+## 📝 Notes on accuracy
+
+- Transparent images are flattened onto white (as browsers show them) and
+  EXIF rotation is applied before scoring.
+- Animated GIF/WebP files are scored on their first frame only.
+- The score is a single model's opinion, not proof; treat Medium results as
+  "unknown".
 
 ---
 

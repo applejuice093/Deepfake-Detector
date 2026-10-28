@@ -1,7 +1,11 @@
-fastapi
-uvicorn
-numpy
-pillow
-python-multipart
-torch
-transformers
+# Minimum versions are the oldest this code relies on; upper bounds are left
+# open so security fixes are picked up.
+fastapi>=0.100
+uvicorn>=0.23
+numpy>=1.24
+# Image.open(formats=...), ImageOps.exif_transpose and DecompressionBombError
+pillow>=9.1
+# 0.0.18 fixes a multipart parsing DoS (CVE-2024-53981)
+python-multipart>=0.0.18
+torch>=2.0
+transformers>=4.30

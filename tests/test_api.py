@@ -30,8 +30,15 @@ def test_classify_risk_bands(score, expected):
     assert main.classify_risk(score).startswith(expected)
 
 
-def test_health(client):
-    assert client.get("/api/health").json() == {"status": "ok"}
+def test_health(client, monkeypatch):
+    monkeypatch.setattr(main, "_model", None)
+    body = client.get("/api/health").json()
+    assert body == {"status": "ok", "model": main.MODEL_NAME, "model_loaded": False}
+
+
+def test_health_reports_loaded_model(client, monkeypatch):
+    monkeypatch.setattr(main, "_model", object())
+    assert client.get("/api/health").json()["model_loaded"] is True
 
 
 def test_analyze_image_returns_score(client):
@@ -119,3 +126,28 @@ def test_exif_orientation_is_applied_before_inference(monkeypatch):
     )
     assert res.status_code == 200
     assert seen["shape"] == (8, 4, 3)  # (height, width, channels)
+
+
+@pytest.mark.parametrize("fmt,mime", [("WEBP", "image/webp"), ("GIF", "image/gif"), ("BMP", "image/bmp")])
+def test_accepts_common_formats(client, fmt, mime):
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), "green").save(buf, format=fmt)
+    res = client.post("/analyze", files={"file": ("a", buf.getvalue(), mime)})
+    assert res.status_code == 200
+
+
+def test_rejects_formats_outside_the_allowlist(client):
+    # A valid ICO file is decodable by Pillow but is not an allowed format,
+    # even when the client claims it is a PNG.
+    buf = io.BytesIO()
+    Image.new("RGB", (16, 16), "red").save(buf, format="ICO")
+    res = client.post("/analyze", files={"file": ("a.png", buf.getvalue(), "image/png")})
+    assert res.status_code == 400
+    assert "Supported formats" in res.json()["detail"]
+
+
+def test_response_names_the_model_used(client, monkeypatch):
+    monkeypatch.setattr(main, "MODEL_NAME", "org/some-model")
+    body = client.post("/analyze", files={"file": ("a.png", _png_bytes(), "image/png")}).json()
+    assert body["model"] == "org/some-model"
+    assert "org/some-model" in body["indicators"][0]["description"]

@@ -61,3 +61,12 @@ def test_model_is_loaded_once_under_concurrency(fake_transformers):
     for t in threads:
         t.join()
     assert fake_transformers == {"processor": 1, "model": 1}
+
+
+def test_fake_label_lookup_is_case_insensitive():
+    assert main._find_fake_label({"0": "real", "1": " FAKE "}) == 1
+
+
+def test_missing_fake_label_raises_clear_error():
+    with pytest.raises(RuntimeError, match="no 'fake' label"):
+        main._find_fake_label({0: "cat", 1: "dog"})

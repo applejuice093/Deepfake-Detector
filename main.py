@@ -56,6 +56,17 @@ MAX_UPLOAD_BYTES = _env_int("MAX_UPLOAD_MB", 10) * 1024 * 1024
 # once decoded ("decompression bombs"). 40 MP comfortably covers phone photos.
 MAX_IMAGE_PIXELS = _env_int("MAX_IMAGE_MEGAPIXELS", 40) * 1_000_000
 
+# Only decode common photo formats. Pillow otherwise auto-detects dozens of
+# formats from the file header (ignoring the client-supplied Content-Type),
+# including EPS, which shells out to Ghostscript, and rarely-used parsers
+# that widen the attack surface. MPO is how many cameras save JPEGs.
+# Image.init() registers every plugin up front; Image.open(formats=...)
+# raises KeyError for plugins (like MPO) that are not loaded yet.
+Image.init()
+ALLOWED_IMAGE_FORMATS = tuple(
+    f for f in ("JPEG", "MPO", "PNG", "WEBP", "GIF", "BMP", "TIFF") if f in Image.OPEN
+)
+
 # -------------------------
 # HuggingFace model (loaded lazily on first request)
 # -------------------------
@@ -66,6 +77,21 @@ _processor = None
 _model = None
 _fake_label_index = None
 _model_lock = threading.Lock()
+
+
+def _find_fake_label(id2label):
+    """Return the class index whose label is "fake" (case-insensitive).
+
+    Raises a descriptive RuntimeError when MODEL_NAME points at a model
+    without such a label, instead of a bare StopIteration that is hard
+    to diagnose from the logs."""
+    for idx, label in id2label.items():
+        if str(label).strip().lower() == "fake":
+            return int(idx)
+    raise RuntimeError(
+        f"Model {MODEL_NAME!r} has no 'fake' label (labels: {sorted(map(str, id2label.values()))}); "
+        "set MODEL_NAME to a binary Fake/Real image classifier"
+    )
 
 
 def _load_model():
@@ -86,10 +112,7 @@ def _load_model():
             model.eval()
             # The model's labels are {0: "Fake", 1: "Real"}; look the index up
             # from the config instead of hardcoding it so the score is P(fake).
-            fake_idx = next(
-                int(i) for i, label in model.config.id2label.items()
-                if label.lower() == "fake"
-            )
+            fake_idx = _find_fake_label(model.config.id2label)
             # Publish the model last so other threads never see a half-set state.
             _processor, _fake_label_index = processor, fake_idx
             _model = model
@@ -98,6 +121,15 @@ def _load_model():
 # -------------------------
 # Inference
 # -------------------------
+
+def _to_percent(probability):
+    """Convert a 0-1 probability to an integer percentage.
+
+    Rounds to the nearest integer (int() would truncate, so a 0.5999
+    probability showed as 59 and fell into the Medium band instead of
+    High) and clamps to 0-100 to absorb float noise."""
+    return max(0, min(100, int(round(float(probability) * 100))))
+
 
 def deepfake_score(image_np):
     """Return the probability (0-100) that the image is a deepfake."""
@@ -108,7 +140,7 @@ def deepfake_score(image_np):
     with torch.no_grad():
         outputs = model(**inputs)
         probs = torch.softmax(outputs.logits, dim=1)
-    return int(probs[0][fake_idx].item() * 100)
+    return _to_percent(probs[0][fake_idx].item())
 
 def classify_risk(score):
     """Map a 0-100 deepfake probability to a human-readable risk band."""
@@ -118,13 +150,31 @@ def classify_risk(score):
         return "Medium (Inconclusive)"
     return "High (Possible Deepfake)"
 
+def _to_rgb(img):
+    """Convert any Pillow image to RGB for the model.
+
+    A plain .convert("RGB") drops the alpha channel, which turns the
+    transparent areas of PNG/WebP/GIF images black and gives the model a
+    picture the user never saw. Composite transparent images onto white
+    first, the way browsers display them."""
+    if img.mode == "P" and "transparency" in img.info:
+        img = img.convert("RGBA")
+    if img.mode in ("RGBA", "LA", "PA"):
+        rgba = img.convert("RGBA")
+        background = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+        return Image.alpha_composite(background, rgba).convert("RGB")
+    return img.convert("RGB")
+
+
 # -------------------------
 # API
 # -------------------------
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    """Liveness check. `model_loaded` is false until the first analysis
+    downloads the weights, which helps explain a slow first request."""
+    return {"status": "ok", "model": MODEL_NAME, "model_loaded": _model is not None}
 
 @app.post("/analyze")
 async def analyze_file(file: UploadFile = File(...)):
@@ -143,7 +193,7 @@ async def analyze_file(file: UploadFile = File(...)):
     # Decode straight from memory: user images never touch the disk, so there
     # is nothing to clean up and no filename/path handling to get wrong.
     try:
-        with Image.open(io.BytesIO(data)) as img:
+        with Image.open(io.BytesIO(data), formats=ALLOWED_IMAGE_FORMATS) as img:
             # Image.open only parses the header, so the size check is cheap
             # and happens before any pixel data is decoded.
             width, height = img.size
@@ -156,11 +206,14 @@ async def analyze_file(file: UploadFile = File(...)):
             # Phone cameras store rotation in EXIF instead of rotating pixels;
             # apply it so the model sees the photo upright, as the user does.
             upright = ImageOps.exif_transpose(img)
-            img_np = np.array(upright.convert("RGB"))
+            img_np = np.array(_to_rgb(upright))
     except Image.DecompressionBombError:
         raise HTTPException(status_code=413, detail="Image dimensions too large")
     except (UnidentifiedImageError, OSError):
-        raise HTTPException(status_code=400, detail="File is not a valid image")
+        raise HTTPException(
+            status_code=400,
+            detail="File is not a valid image. Supported formats: JPEG, PNG, WebP, GIF, BMP, TIFF",
+        )
 
     # Model inference is CPU-bound and synchronous; run it in the thread pool so
     # it does not block the event loop (health checks, other uploads) meanwhile.
@@ -180,13 +233,14 @@ async def analyze_file(file: UploadFile = File(...)):
 
     return {
         "media_type": "Image",
+        "model": MODEL_NAME,
         "overall_score": score,
         "risk_level": risk_level,
         "indicators": [
             {
                 "name": "AI Model Confidence",
                 "score": score,
-                "description": "Pretrained Hugging Face deepfake detection model"
+                "description": f"Probability of 'fake' from the pretrained Hugging Face model {MODEL_NAME}"
             }
         ],
         "explanation": (
