@@ -30,8 +30,15 @@ def test_classify_risk_bands(score, expected):
     assert main.classify_risk(score).startswith(expected)
 
 
-def test_health(client):
-    assert client.get("/api/health").json() == {"status": "ok"}
+def test_health(client, monkeypatch):
+    monkeypatch.setattr(main, "_model", None)
+    body = client.get("/api/health").json()
+    assert body == {"status": "ok", "model": main.MODEL_NAME, "model_loaded": False}
+
+
+def test_health_reports_loaded_model(client, monkeypatch):
+    monkeypatch.setattr(main, "_model", object())
+    assert client.get("/api/health").json()["model_loaded"] is True
 
 
 def test_analyze_image_returns_score(client):

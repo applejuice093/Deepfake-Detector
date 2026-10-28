@@ -172,7 +172,9 @@ def _to_rgb(img):
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    """Liveness check. `model_loaded` is false until the first analysis
+    downloads the weights, which helps explain a slow first request."""
+    return {"status": "ok", "model": MODEL_NAME, "model_loaded": _model is not None}
 
 @app.post("/analyze")
 async def analyze_file(file: UploadFile = File(...)):
