@@ -127,6 +127,22 @@ def classify_risk(score):
         return "Medium (Inconclusive)"
     return "High (Possible Deepfake)"
 
+def _to_rgb(img):
+    """Convert any Pillow image to RGB for the model.
+
+    A plain .convert("RGB") drops the alpha channel, which turns the
+    transparent areas of PNG/WebP/GIF images black and gives the model a
+    picture the user never saw. Composite transparent images onto white
+    first, the way browsers display them."""
+    if img.mode == "P" and "transparency" in img.info:
+        img = img.convert("RGBA")
+    if img.mode in ("RGBA", "LA", "PA"):
+        rgba = img.convert("RGBA")
+        background = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+        return Image.alpha_composite(background, rgba).convert("RGB")
+    return img.convert("RGB")
+
+
 # -------------------------
 # API
 # -------------------------
@@ -165,7 +181,7 @@ async def analyze_file(file: UploadFile = File(...)):
             # Phone cameras store rotation in EXIF instead of rotating pixels;
             # apply it so the model sees the photo upright, as the user does.
             upright = ImageOps.exif_transpose(img)
-            img_np = np.array(upright.convert("RGB"))
+            img_np = np.array(_to_rgb(upright))
     except Image.DecompressionBombError:
         raise HTTPException(status_code=413, detail="Image dimensions too large")
     except (UnidentifiedImageError, OSError):
