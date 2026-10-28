@@ -79,6 +79,21 @@ _fake_label_index = None
 _model_lock = threading.Lock()
 
 
+def _find_fake_label(id2label):
+    """Return the class index whose label is "fake" (case-insensitive).
+
+    Raises a descriptive RuntimeError when MODEL_NAME points at a model
+    without such a label, instead of a bare StopIteration that is hard
+    to diagnose from the logs."""
+    for idx, label in id2label.items():
+        if str(label).strip().lower() == "fake":
+            return int(idx)
+    raise RuntimeError(
+        f"Model {MODEL_NAME!r} has no 'fake' label (labels: {sorted(map(str, id2label.values()))}); "
+        "set MODEL_NAME to a binary Fake/Real image classifier"
+    )
+
+
 def _load_model():
     """Load the model once. Deferred so the app starts fast and tests can
     run without downloading weights."""
@@ -97,10 +112,7 @@ def _load_model():
             model.eval()
             # The model's labels are {0: "Fake", 1: "Real"}; look the index up
             # from the config instead of hardcoding it so the score is P(fake).
-            fake_idx = next(
-                int(i) for i, label in model.config.id2label.items()
-                if label.lower() == "fake"
-            )
+            fake_idx = _find_fake_label(model.config.id2label)
             # Publish the model last so other threads never see a half-set state.
             _processor, _fake_label_index = processor, fake_idx
             _model = model
