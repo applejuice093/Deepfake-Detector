@@ -144,9 +144,17 @@ setupFileHandler("audio");
 // ----------------------------
 // REAL Detection Logic
 // ----------------------------
+// Only image analysis exists on the backend; /analyze answers 415 for
+// anything else, so say so up front instead of showing a server error.
+const SUPPORTED_DETECTION = new Set(["image"]);
+
 async function runDetection(type) {
     if (!files[type]) {
         showToast("Please upload a file first.");
+        return;
+    }
+    if (!SUPPORTED_DETECTION.has(type)) {
+        showToast(`${type[0].toUpperCase()}${type.slice(1)} detection is coming soon. Only images can be analysed for now.`);
         return;
     }
 
