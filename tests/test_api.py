@@ -144,3 +144,10 @@ def test_rejects_formats_outside_the_allowlist(client):
     res = client.post("/analyze", files={"file": ("a.png", buf.getvalue(), "image/png")})
     assert res.status_code == 400
     assert "Supported formats" in res.json()["detail"]
+
+
+def test_response_names_the_model_used(client, monkeypatch):
+    monkeypatch.setattr(main, "MODEL_NAME", "org/some-model")
+    body = client.post("/analyze", files={"file": ("a.png", _png_bytes(), "image/png")}).json()
+    assert body["model"] == "org/some-model"
+    assert "org/some-model" in body["indicators"][0]["description"]

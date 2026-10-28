@@ -233,13 +233,14 @@ async def analyze_file(file: UploadFile = File(...)):
 
     return {
         "media_type": "Image",
+        "model": MODEL_NAME,
         "overall_score": score,
         "risk_level": risk_level,
         "indicators": [
             {
                 "name": "AI Model Confidence",
                 "score": score,
-                "description": "Pretrained Hugging Face deepfake detection model"
+                "description": f"Probability of 'fake' from the pretrained Hugging Face model {MODEL_NAME}"
             }
         ],
         "explanation": (
