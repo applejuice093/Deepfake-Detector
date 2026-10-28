@@ -99,6 +99,15 @@ def _load_model():
 # Inference
 # -------------------------
 
+def _to_percent(probability):
+    """Convert a 0-1 probability to an integer percentage.
+
+    Rounds to the nearest integer (int() would truncate, so a 0.5999
+    probability showed as 59 and fell into the Medium band instead of
+    High) and clamps to 0-100 to absorb float noise."""
+    return max(0, min(100, int(round(float(probability) * 100))))
+
+
 def deepfake_score(image_np):
     """Return the probability (0-100) that the image is a deepfake."""
     import torch
@@ -108,7 +117,7 @@ def deepfake_score(image_np):
     with torch.no_grad():
         outputs = model(**inputs)
         probs = torch.softmax(outputs.logits, dim=1)
-    return int(probs[0][fake_idx].item() * 100)
+    return _to_percent(probs[0][fake_idx].item())
 
 def classify_risk(score):
     """Map a 0-100 deepfake probability to a human-readable risk band."""
