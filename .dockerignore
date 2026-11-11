@@ -10,3 +10,9 @@ tests/
 requirements-dev.txt
 Makefile
 README.md
+# Local model cache, legacy uploads and editor/OS clutter
+.cache/
+uploads/
+.DS_Store
+.vscode/
+.idea/
