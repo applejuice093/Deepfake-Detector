@@ -81,7 +81,10 @@ async function loadServerLimits() {
         if (!res.ok) return;
         const body = await res.json();
         const mb = body?.limits?.max_upload_mb;
-        if (Number.isFinite(mb) && mb > 0) MAX_UPLOAD_MB = mb;
+        if (Number.isFinite(mb) && mb > 0) {
+            MAX_UPLOAD_MB = mb;
+            document.querySelectorAll(".max-upload-mb").forEach(el => el.textContent = mb);
+        }
     } catch (_) {
         // Backend unreachable: keep the default; /analyze will report errors.
     }
