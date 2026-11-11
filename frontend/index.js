@@ -161,6 +161,7 @@ setupFileHandler("audio");
 // Only image analysis exists on the backend; /analyze answers 415 for
 // anything else, so say so up front instead of showing a server error.
 const SUPPORTED_DETECTION = new Set(["image"]);
+const ANALYZE_TIMEOUT_MS = 120000;
 
 async function runDetection(type) {
     if (!files[type]) {
@@ -190,10 +191,25 @@ async function runDetection(type) {
         // Relative URL so it works both locally and on the Hugging Face Space.
         // The API needs no auth header; the browser sets the multipart
         // Content-Type (with boundary) itself.
-        const res = await fetch("/analyze", {
-            method: "POST",
-            body: formData
-        });
+        // Abort if the server never answers, so the button doesn't spin
+        // forever. Generous because the first request downloads the model.
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), ANALYZE_TIMEOUT_MS);
+        let res;
+        try {
+            res = await fetch("/analyze", {
+                method: "POST",
+                body: formData,
+                signal: controller.signal
+            });
+        } catch (err) {
+            if (err.name === "AbortError") {
+                throw new Error("The server took too long to respond. Please try again.");
+            }
+            throw new Error("Could not reach the server. Is the backend running?");
+        } finally {
+            clearTimeout(timer);
+        }
 
         if (!res.ok) {
             // Surface the API's explanation (e.g. unsupported type, too large)
