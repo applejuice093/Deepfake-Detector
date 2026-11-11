@@ -67,6 +67,9 @@ ALLOWED_IMAGE_FORMATS = tuple(
     f for f in ("JPEG", "MPO", "PNG", "WEBP", "GIF", "BMP", "TIFF") if f in Image.OPEN
 )
 
+# Content types that say nothing about the file; the bytes are sniffed instead.
+GENERIC_CONTENT_TYPES = ("", "application/octet-stream")
+
 # -------------------------
 # HuggingFace model (loaded lazily on first request)
 # -------------------------
@@ -193,7 +196,12 @@ def health():
 
 @app.post("/analyze")
 async def analyze_file(file: UploadFile = File(...)):
-    if not (file.content_type or "").startswith("image/"):
+    # Scripts and API clients often send files as application/octet-stream
+    # (curl does for unknown extensions, many HTTP libraries by default).
+    # Let those through: the decoder below only accepts allowlisted image
+    # formats, so a non-image is still rejected with 400.
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    if not (content_type.startswith("image/") or content_type in GENERIC_CONTENT_TYPES):
         raise HTTPException(status_code=415, detail="Only image files are supported")
 
     data = await file.read(MAX_UPLOAD_BYTES + 1)

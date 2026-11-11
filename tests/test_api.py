@@ -158,3 +158,22 @@ def test_frontend_is_served_independent_of_working_directory(client, tmp_path, m
     res = client.get("/")
     assert res.status_code == 200
     assert "<html" in res.text.lower()
+
+
+def test_accepts_image_sent_as_octet_stream(client):
+    res = client.post(
+        "/analyze", files={"file": ("a.bin", _png_bytes(), "application/octet-stream")}
+    )
+    assert res.status_code == 200
+
+
+def test_octet_stream_non_image_is_rejected_by_the_decoder(client):
+    res = client.post(
+        "/analyze", files={"file": ("a.bin", b"%PDF-1.4 not an image", "application/octet-stream")}
+    )
+    assert res.status_code == 400
+
+
+def test_content_type_check_ignores_case_and_parameters(client):
+    res = client.post("/analyze", files={"file": ("a.png", _png_bytes(), "IMAGE/PNG")})
+    assert res.status_code == 200
