@@ -33,7 +33,16 @@ def test_classify_risk_bands(score, expected):
 def test_health(client, monkeypatch):
     monkeypatch.setattr(main, "_model", None)
     body = client.get("/api/health").json()
-    assert body == {"status": "ok", "model": main.MODEL_NAME, "model_loaded": False}
+    assert body["status"] == "ok"
+    assert body["model"] == main.MODEL_NAME
+    assert body["model_loaded"] is False
+
+
+def test_health_reports_configured_limits(client, monkeypatch):
+    monkeypatch.setattr(main, "MAX_UPLOAD_BYTES", 25 * 1024 * 1024)
+    monkeypatch.setattr(main, "MAX_IMAGE_PIXELS", 12_000_000)
+    limits = client.get("/api/health").json()["limits"]
+    assert limits == {"max_upload_mb": 25, "max_image_megapixels": 12}
 
 
 def test_health_reports_loaded_model(client, monkeypatch):

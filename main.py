@@ -191,8 +191,19 @@ def _to_rgb(img):
 @app.get("/api/health")
 def health():
     """Liveness check. `model_loaded` is false until the first analysis
-    downloads the weights, which helps explain a slow first request."""
-    return {"status": "ok", "model": MODEL_NAME, "model_loaded": _model is not None}
+    downloads the weights, which helps explain a slow first request.
+    `limits` reports the configured upload limits."""
+    return {
+        "status": "ok",
+        "model": MODEL_NAME,
+        "model_loaded": _model is not None,
+        # Published so the frontend can validate uploads against the real
+        # server limits instead of a hardcoded copy of the defaults.
+        "limits": {
+            "max_upload_mb": MAX_UPLOAD_BYTES // (1024 * 1024),
+            "max_image_megapixels": MAX_IMAGE_PIXELS // 1_000_000,
+        },
+    }
 
 @app.post("/analyze")
 async def analyze_file(file: UploadFile = File(...)):
