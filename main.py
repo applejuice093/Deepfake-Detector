@@ -253,4 +253,8 @@ async def analyze_file(file: UploadFile = File(...)):
 # Serve your WEBSITE UI
 # -------------------------
 
-app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
+# Resolve relative to this file, not the working directory, so
+# `uvicorn main:app` also works when started from another folder
+# (e.g. `uvicorn --app-dir Deepfake-Detector main:app`).
+FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
+app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

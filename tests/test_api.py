@@ -151,3 +151,10 @@ def test_response_names_the_model_used(client, monkeypatch):
     body = client.post("/analyze", files={"file": ("a.png", _png_bytes(), "image/png")}).json()
     assert body["model"] == "org/some-model"
     assert "org/some-model" in body["indicators"][0]["description"]
+
+
+def test_frontend_is_served_independent_of_working_directory(client, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    res = client.get("/")
+    assert res.status_code == 200
+    assert "<html" in res.text.lower()
