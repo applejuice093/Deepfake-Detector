@@ -45,6 +45,14 @@ function setupFileHandler(type) {
     if (!dropZone) return;
 
     dropZone.addEventListener("click", () => input.click());
+    // The drop zone acts as a button (role="button" tabindex="0" in the
+    // HTML), so let keyboard users open the file picker with Enter/Space.
+    dropZone.addEventListener("keydown", e => {
+        if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            input.click();
+        }
+    });
 
     dropZone.addEventListener("dragover", e => {
         e.preventDefault();
@@ -70,9 +78,26 @@ function setupFileHandler(type) {
     });
 }
 
-// Mirrors the server's MAX_UPLOAD_MB default so users get instant feedback
-// instead of uploading a large file only to receive a 413.
-const MAX_UPLOAD_MB = 10;
+// Client-side size check so users get instant feedback instead of uploading
+// a large file only to receive a 413. Starts at the server's default and is
+// replaced by the real configured limit from /api/health once it loads.
+let MAX_UPLOAD_MB = 10;
+
+async function loadServerLimits() {
+    try {
+        const res = await fetch("/api/health");
+        if (!res.ok) return;
+        const body = await res.json();
+        const mb = body?.limits?.max_upload_mb;
+        if (Number.isFinite(mb) && mb > 0) {
+            MAX_UPLOAD_MB = mb;
+            document.querySelectorAll(".max-upload-mb").forEach(el => el.textContent = mb);
+        }
+    } catch (_) {
+        // Backend unreachable: keep the default; /analyze will report errors.
+    }
+}
+loadServerLimits();
 
 function validateFile(file, type) {
     // Drag-and-drop bypasses the input's `accept` filter, so check here too.
@@ -147,6 +172,7 @@ setupFileHandler("audio");
 // Only image analysis exists on the backend; /analyze answers 415 for
 // anything else, so say so up front instead of showing a server error.
 const SUPPORTED_DETECTION = new Set(["image"]);
+const ANALYZE_TIMEOUT_MS = 120000;
 
 async function runDetection(type) {
     if (!files[type]) {
@@ -176,10 +202,25 @@ async function runDetection(type) {
         // Relative URL so it works both locally and on the Hugging Face Space.
         // The API needs no auth header; the browser sets the multipart
         // Content-Type (with boundary) itself.
-        const res = await fetch("/analyze", {
-            method: "POST",
-            body: formData
-        });
+        // Abort if the server never answers, so the button doesn't spin
+        // forever. Generous because the first request downloads the model.
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), ANALYZE_TIMEOUT_MS);
+        let res;
+        try {
+            res = await fetch("/analyze", {
+                method: "POST",
+                body: formData,
+                signal: controller.signal
+            });
+        } catch (err) {
+            if (err.name === "AbortError") {
+                throw new Error("The server took too long to respond. Please try again.");
+            }
+            throw new Error("Could not reach the server. Is the backend running?");
+        } finally {
+            clearTimeout(timer);
+        }
 
         if (!res.ok) {
             // Surface the API's explanation (e.g. unsupported type, too large)
@@ -207,8 +248,8 @@ async function runDetection(type) {
             score.style.color = "var(--accent-red)";
         } else if (risk.includes("Medium")) {
             badge.textContent = "Medium Risk – Inconclusive";
-            badge.className = "result-badge";
-            score.style.color = "orange";
+            badge.className = "result-badge result-medium";
+            score.style.color = "var(--accent-orange)";
         } else {
             badge.textContent = "Low Risk – Likely Authentic";
             badge.className = "result-badge result-real";

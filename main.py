@@ -67,6 +67,9 @@ ALLOWED_IMAGE_FORMATS = tuple(
     f for f in ("JPEG", "MPO", "PNG", "WEBP", "GIF", "BMP", "TIFF") if f in Image.OPEN
 )
 
+# Content types that say nothing about the file; the bytes are sniffed instead.
+GENERIC_CONTENT_TYPES = ("", "application/octet-stream")
+
 # -------------------------
 # HuggingFace model (loaded lazily on first request)
 # -------------------------
@@ -150,6 +153,16 @@ def classify_risk(score):
         return "Medium (Inconclusive)"
     return "High (Possible Deepfake)"
 
+def _high_bit_depth_to_l(img):
+    """Scale an "I;16*", "I" or "F" image down to 8-bit grayscale ("L")."""
+    arr = np.asarray(img, dtype=np.float64)
+    if img.mode == "F" and arr.size and arr.max() <= 1.0:
+        arr = arr * 255.0  # float images are usually normalised to 0-1
+    elif img.mode != "F":
+        arr = arr / 257.0  # 0-65535 -> 0-255 (16-bit data, also when opened as "I")
+    return Image.fromarray(np.clip(np.rint(arr), 0, 255).astype(np.uint8), mode="L")
+
+
 def _to_rgb(img):
     """Convert any Pillow image to RGB for the model.
 
@@ -157,6 +170,11 @@ def _to_rgb(img):
     transparent areas of PNG/WebP/GIF images black and gives the model a
     picture the user never saw. Composite transparent images onto white
     first, the way browsers display them."""
+    if img.mode.startswith("I") or img.mode == "F":
+        # 16-bit / 32-bit grayscale (e.g. 16-bit PNGs). Pillow's convert()
+        # clips these to 0-255, so most pixels turn pure white; rescale to
+        # 8 bits instead so the model sees the real picture.
+        img = _high_bit_depth_to_l(img)
     if img.mode == "P" and "transparency" in img.info:
         img = img.convert("RGBA")
     if img.mode in ("RGBA", "LA", "PA"):
@@ -173,12 +191,28 @@ def _to_rgb(img):
 @app.get("/api/health")
 def health():
     """Liveness check. `model_loaded` is false until the first analysis
-    downloads the weights, which helps explain a slow first request."""
-    return {"status": "ok", "model": MODEL_NAME, "model_loaded": _model is not None}
+    downloads the weights, which helps explain a slow first request.
+    `limits` reports the configured upload limits."""
+    return {
+        "status": "ok",
+        "model": MODEL_NAME,
+        "model_loaded": _model is not None,
+        # Published so the frontend can validate uploads against the real
+        # server limits instead of a hardcoded copy of the defaults.
+        "limits": {
+            "max_upload_mb": MAX_UPLOAD_BYTES // (1024 * 1024),
+            "max_image_megapixels": MAX_IMAGE_PIXELS // 1_000_000,
+        },
+    }
 
 @app.post("/analyze")
 async def analyze_file(file: UploadFile = File(...)):
-    if not (file.content_type or "").startswith("image/"):
+    # Scripts and API clients often send files as application/octet-stream
+    # (curl does for unknown extensions, many HTTP libraries by default).
+    # Let those through: the decoder below only accepts allowlisted image
+    # formats, so a non-image is still rejected with 400.
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    if not (content_type.startswith("image/") or content_type in GENERIC_CONTENT_TYPES):
         raise HTTPException(status_code=415, detail="Only image files are supported")
 
     data = await file.read(MAX_UPLOAD_BYTES + 1)
@@ -253,4 +287,8 @@ async def analyze_file(file: UploadFile = File(...)):
 # Serve your WEBSITE UI
 # -------------------------
 
-app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
+# Resolve relative to this file, not the working directory, so
+# `uvicorn main:app` also works when started from another folder
+# (e.g. `uvicorn --app-dir Deepfake-Detector main:app`).
+FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
+app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

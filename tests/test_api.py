@@ -33,7 +33,16 @@ def test_classify_risk_bands(score, expected):
 def test_health(client, monkeypatch):
     monkeypatch.setattr(main, "_model", None)
     body = client.get("/api/health").json()
-    assert body == {"status": "ok", "model": main.MODEL_NAME, "model_loaded": False}
+    assert body["status"] == "ok"
+    assert body["model"] == main.MODEL_NAME
+    assert body["model_loaded"] is False
+
+
+def test_health_reports_configured_limits(client, monkeypatch):
+    monkeypatch.setattr(main, "MAX_UPLOAD_BYTES", 25 * 1024 * 1024)
+    monkeypatch.setattr(main, "MAX_IMAGE_PIXELS", 12_000_000)
+    limits = client.get("/api/health").json()["limits"]
+    assert limits == {"max_upload_mb": 25, "max_image_megapixels": 12}
 
 
 def test_health_reports_loaded_model(client, monkeypatch):
@@ -151,3 +160,29 @@ def test_response_names_the_model_used(client, monkeypatch):
     body = client.post("/analyze", files={"file": ("a.png", _png_bytes(), "image/png")}).json()
     assert body["model"] == "org/some-model"
     assert "org/some-model" in body["indicators"][0]["description"]
+
+
+def test_frontend_is_served_independent_of_working_directory(client, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    res = client.get("/")
+    assert res.status_code == 200
+    assert "<html" in res.text.lower()
+
+
+def test_accepts_image_sent_as_octet_stream(client):
+    res = client.post(
+        "/analyze", files={"file": ("a.bin", _png_bytes(), "application/octet-stream")}
+    )
+    assert res.status_code == 200
+
+
+def test_octet_stream_non_image_is_rejected_by_the_decoder(client):
+    res = client.post(
+        "/analyze", files={"file": ("a.bin", b"%PDF-1.4 not an image", "application/octet-stream")}
+    )
+    assert res.status_code == 400
+
+
+def test_content_type_check_ignores_case_and_parameters(client):
+    res = client.post("/analyze", files={"file": ("a.png", _png_bytes(), "IMAGE/PNG")})
+    assert res.status_code == 200

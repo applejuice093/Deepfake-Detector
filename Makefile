@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: install install-dev run test docker-build docker-run clean
+.PHONY: install install-dev install-test run test docker-build docker-run clean
 
 install:
 	$(PYTHON) -m pip install -r requirements.txt
@@ -8,8 +8,12 @@ install:
 install-dev:
 	$(PYTHON) -m pip install -r requirements-dev.txt
 
+# Test dependencies only (no torch/transformers download).
+install-test:
+	$(PYTHON) -m pip install -r requirements-test.txt
+
 run:
-	uvicorn main:app --reload --port 8000
+	$(PYTHON) -m uvicorn main:app --reload --port 8000
 
 test:
 	$(PYTHON) -m pytest -q
