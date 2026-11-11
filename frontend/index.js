@@ -70,9 +70,23 @@ function setupFileHandler(type) {
     });
 }
 
-// Mirrors the server's MAX_UPLOAD_MB default so users get instant feedback
-// instead of uploading a large file only to receive a 413.
-const MAX_UPLOAD_MB = 10;
+// Client-side size check so users get instant feedback instead of uploading
+// a large file only to receive a 413. Starts at the server's default and is
+// replaced by the real configured limit from /api/health once it loads.
+let MAX_UPLOAD_MB = 10;
+
+async function loadServerLimits() {
+    try {
+        const res = await fetch("/api/health");
+        if (!res.ok) return;
+        const body = await res.json();
+        const mb = body?.limits?.max_upload_mb;
+        if (Number.isFinite(mb) && mb > 0) MAX_UPLOAD_MB = mb;
+    } catch (_) {
+        // Backend unreachable: keep the default; /analyze will report errors.
+    }
+}
+loadServerLimits();
 
 function validateFile(file, type) {
     // Drag-and-drop bypasses the input's `accept` filter, so check here too.
