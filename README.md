@@ -89,6 +89,9 @@ make docker-build
 make docker-run
 ```
 
+The container listens on `$PORT` (default `8000`), e.g.
+`docker run -e PORT=7860 -p 7860:7860 deepfake-detector` for Hugging Face Spaces.
+
 ### Configuration
 
 | Variable        | Default                                     | Purpose                        |
@@ -107,14 +110,15 @@ stopping the server.
 
 | Method | Path          | Description                          |
 |--------|---------------|--------------------------------------|
-| GET    | `/api/health` | Health check: `status`, `model`, `model_loaded` |
+| GET    | `/api/health` | Health check: `status`, `model`, `model_loaded`, `limits` (`max_upload_mb`, `max_image_megapixels`) |
 | POST   | `/analyze`    | Multipart upload, form field `file`  |
 
 `/analyze` returns `model` (the classifier used), `overall_score` (0–100,
 rounded probability the image is fake),
 `risk_level` (Low < 30 ≤ Medium < 60 ≤ High) and `indicators`.
 Errors: `400` empty/corrupt image, `413` file or image dimensions too large,
-`415` not an image, `503` model could not be loaded or run (e.g. no network
+`415` not an image (uploads sent as `application/octet-stream` are accepted
+and checked by content instead), `503` model could not be loaded or run (e.g. no network
 for the first weights download). Uploads are processed in memory and never
 stored. There is no authentication layer; restrict `CORS_ORIGINS` or put the
 API behind a proxy if you expose it publicly.
@@ -151,6 +155,8 @@ make test
 
 - Transparent images are flattened onto white (as browsers show them) and
   EXIF rotation is applied before scoring.
+- 16-bit and floating-point grayscale images are rescaled to 8 bits rather
+  than clipped, so they are not scored as an all-white picture.
 - Animated GIF/WebP files are scored on their first frame only.
 - The score is a single model's opinion, not proof; treat Medium results as
   "unknown".
