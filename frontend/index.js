@@ -248,8 +248,8 @@ async function runDetection(type) {
             score.style.color = "var(--accent-red)";
         } else if (risk.includes("Medium")) {
             badge.textContent = "Medium Risk – Inconclusive";
-            badge.className = "result-badge";
-            score.style.color = "orange";
+            badge.className = "result-badge result-medium";
+            score.style.color = "var(--accent-orange)";
         } else {
             badge.textContent = "Low Risk – Likely Authentic";
             badge.className = "result-badge result-real";
