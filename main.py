@@ -150,6 +150,16 @@ def classify_risk(score):
         return "Medium (Inconclusive)"
     return "High (Possible Deepfake)"
 
+def _high_bit_depth_to_l(img):
+    """Scale an "I;16*", "I" or "F" image down to 8-bit grayscale ("L")."""
+    arr = np.asarray(img, dtype=np.float64)
+    if img.mode == "F" and arr.size and arr.max() <= 1.0:
+        arr = arr * 255.0  # float images are usually normalised to 0-1
+    elif img.mode != "F":
+        arr = arr / 257.0  # 0-65535 -> 0-255 (16-bit data, also when opened as "I")
+    return Image.fromarray(np.clip(np.rint(arr), 0, 255).astype(np.uint8), mode="L")
+
+
 def _to_rgb(img):
     """Convert any Pillow image to RGB for the model.
 
@@ -157,6 +167,11 @@ def _to_rgb(img):
     transparent areas of PNG/WebP/GIF images black and gives the model a
     picture the user never saw. Composite transparent images onto white
     first, the way browsers display them."""
+    if img.mode.startswith("I") or img.mode == "F":
+        # 16-bit / 32-bit grayscale (e.g. 16-bit PNGs). Pillow's convert()
+        # clips these to 0-255, so most pixels turn pure white; rescale to
+        # 8 bits instead so the model sees the real picture.
+        img = _high_bit_depth_to_l(img)
     if img.mode == "P" and "transparency" in img.info:
         img = img.convert("RGBA")
     if img.mode in ("RGBA", "LA", "PA"):

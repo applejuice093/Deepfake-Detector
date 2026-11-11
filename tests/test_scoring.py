@@ -37,3 +37,32 @@ def test_grayscale_is_converted_to_rgb():
 
     rgb = main._to_rgb(Image.new("L", (1, 1), 128))
     assert rgb.getpixel((0, 0)) == (128, 128, 128)
+
+
+@pytest.mark.parametrize("mode,value,expected", [("I;16", 32896, 128), ("I", 65535, 255), ("F", 0.5, 128)])
+def test_high_bit_depth_grayscale_is_rescaled_not_clipped(mode, value, expected):
+    from PIL import Image
+
+    rgb = main._to_rgb(Image.new(mode, (1, 1), value))
+    assert rgb.mode == "RGB"
+    assert rgb.getpixel((0, 0)) == (expected,) * 3
+
+
+def test_16_bit_png_upload_is_not_washed_out(monkeypatch):
+    import io
+
+    from fastapi.testclient import TestClient
+    from PIL import Image
+
+    seen = {}
+
+    def capture(image_np):
+        seen["px"] = image_np[0, 0].tolist()
+        return 5
+
+    monkeypatch.setattr(main, "deepfake_score", capture)
+    buf = io.BytesIO()
+    Image.new("I;16", (4, 4), 1028).save(buf, format="PNG")  # 1028/257 = 4
+    res = TestClient(main.app).post("/analyze", files={"file": ("g.png", buf.getvalue(), "image/png")})
+    assert res.status_code == 200
+    assert seen["px"] == [4, 4, 4]
