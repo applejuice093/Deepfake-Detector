@@ -158,6 +158,7 @@ main {
 }
 
 .drop-zone:hover,
+.drop-zone:focus-visible,
 .drop-zone.drag-over {
     border-color: var(--secondary-color);
     background: #f0f4ff;

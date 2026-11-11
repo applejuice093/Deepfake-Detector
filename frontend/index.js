@@ -45,6 +45,14 @@ function setupFileHandler(type) {
     if (!dropZone) return;
 
     dropZone.addEventListener("click", () => input.click());
+    // The drop zone acts as a button (role="button" tabindex="0" in the
+    // HTML), so let keyboard users open the file picker with Enter/Space.
+    dropZone.addEventListener("keydown", e => {
+        if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            input.click();
+        }
+    });
 
     dropZone.addEventListener("dragover", e => {
         e.preventDefault();
