@@ -16,3 +16,4 @@ uploads/
 .DS_Store
 .vscode/
 .idea/
+requirements-test.txt

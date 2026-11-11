@@ -143,8 +143,8 @@ downloading weights. `make install-dev` still installs PyTorch from
 `requirements.txt`; to skip it for a quick test-only setup:
 
 ```bash
-pip install fastapi uvicorn numpy pillow python-multipart pytest httpx
-python -m pytest -q
+make install-test   # pip install -r requirements-test.txt (no torch)
+make test
 ```
 
 ## 📝 Notes on accuracy
